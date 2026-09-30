@@ -576,13 +576,26 @@ select {
 .add {
   width: 36px;
   height: 36px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--soft);
+  border-radius: 50%;
+  border: none;
+  background: #2563EB;
+  color: #FFFFFF;
   float: right;
-  margin-top: -4px;
-  font-weight: 800;
+  margin-top: 4px;
+  margin-right: 2px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.22);
   transition: background 0.2s, transform 0.2s;
+}
+
+.add:hover {
+  background: #1D4ED8;
+  transform: scale(1.05);
 }
 
 .add:hover {
@@ -1343,15 +1356,17 @@ select {
 }
 
 /* 2. Keranjang Belanja (Biru Terang + Badge Oranye Gelap) */
-.cart-btn,
-.header-cart,
-#cartBtn {
-  background-color: #2563EB !important; /* Biru Terang */
-  color: #FFFFFF !important;
-  border: none !important;
-  border-radius: 50px !important;
-  padding: 8px 18px !important;
-  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.3) !important;
+.cart-icon-btn {
+  background: #2563EB;
+  color: #FFFFFF;
+  border: none;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.25);
+}
+
+.cart-icon-btn .cart-count {
+  background: #C2410C;
+  color: #FFFFFF;
+  font-weight: 700;
 }
 
 .cart-badge,

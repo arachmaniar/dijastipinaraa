@@ -149,21 +149,22 @@ select {
   font-weight: 700;
 }
 
-.cart-icon-btn {
+..cart-icon-btn {
   position: relative;
   width: 42px;
   height: 42px;
-  padding: 7px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent !important;
   display: grid;
   place-items: center;
+  box-shadow: none !important;
 }
 
-.cart-icon {
-  width: 23px;
-  height: 23px;
+.cart-icon-btn .cart-icon {
+  color: #2563EB !important;
+  stroke: #2563EB !important;
 }
 
 .price-from {
@@ -182,17 +183,20 @@ select {
 
 .cart-icon-btn .cart-count {
   position: absolute;
-  top: 1px;
-  right: 0;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  top: -2px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 10px;
-  line-height: 16px;
+  background: #C2410C !important;
+  color: #FFFFFF !important;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
   text-align: center;
+  border: none;
+  box-shadow: none;
 }
 
 .page {
@@ -518,7 +522,7 @@ select {
 }
 
 .card-body {
-  padding: 14px 14px 16px;
+  padding: 14px 14px 24px;
 }
 
 .name {
@@ -590,7 +594,6 @@ select {
   align-items: center;
   justify-content: center;
   box-shadow: 0 3px 8px rgba(37, 99, 235, 0.22);
-  transition: background 0.2s, transform 0.2s;
 }
 
 .add:hover {
@@ -1336,7 +1339,7 @@ select {
 /* 1. Card Produk & Tombol Plus (+) */
 .product-card {
   position: relative !important;
-  padding-bottom: 28px !important; /* Ruang ekstra bawah card */
+  padding-bottom: 24px !important; /* Ruang ekstra bawah card */
 }
 
 .btn-plus-cart {
@@ -1426,4 +1429,22 @@ select {
   background: #C2410C !important;
   color: #FFFFFF !important;
   font-weight: 700;
+}
+
+.card {
+  position: relative;
+}
+
+.product-label {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: #C2410C;
+  color: #FFFFFF;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  z-index: 3;
 }

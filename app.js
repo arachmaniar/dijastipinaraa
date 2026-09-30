@@ -685,9 +685,11 @@ function renderProductCard(product) {
     }
   }
 
-  // Add out of stock badge
+    // Product label from Google Sheet
   let badgeHtml = '';
-  if (isOutOfStock) {
+  if (product.sale_label && String(product.sale_label).trim()) {
+    badgeHtml = `<div class="product-label">${product.sale_label}</div>`;
+  } else if (isOutOfStock) {
     badgeHtml = `<div class="badge">Habis</div>`;
   } else if (product.discountPercent > 0) {
     badgeHtml = `<div class="badge">Diskon ${product.discountPercent}%</div>`;

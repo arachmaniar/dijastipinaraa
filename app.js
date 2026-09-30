@@ -38,7 +38,9 @@ const LOCAL_CATALOG_IMAGES = Object.freeze({
 });
 
 function getProductForSku(skuId) {
-  return state.products.find(product => product.variants.some(variant => variant.sku_id === skuId));
+  return state.products.find(product =>
+    product.variants.some(variant => variant.sku_id === skuId)
+  );
 }
 
 function getProductById(productId) {
@@ -46,63 +48,104 @@ function getProductById(productId) {
 }
 
 function getLocalImageUrl(product) {
-  return LOCAL_CATALOG_IMAGES[product.product_name] || '';
+  return LOCAL_CATALOG_IMAGES[product?.product_name] || '';
 }
 
-function renderProductImage(product, variant = product.variants?.[0], className = '') {
-  const localFallbackUrl = getLocalImageUrl(product);
-  const skuId = variant?.sku_id || product.sku_id || '';
-  const fallback = '<div class="placeholder placeholder-text">Gambar produk</div>';
+// Fungsi pembantu: Mengubah link Google Drive utuh ATAU File ID menjadi URL gambar langsung
+function parseDriveUrl(input) {
+  if (!input) return '';
 
-  return `<img class="${className}" data-product-image data-sku-id="${skuId}" data-product-id="${product.product_id}" data-local-fallback="${localFallbackUrl}" alt="${product.product_name}" loading="lazy" hidden>${fallback}`;
+  const str = String(input).trim();
+
+  const match =
+    str.match(/\/d\/([a-zA-Z0-9_-]+)/) ||
+    str.match(/id=([a-zA-Z0-9_-]+)/);
+
+  const fileId = match ? match[1] : str;
+
+  if (
+    fileId &&
+    !fileId.includes('/') &&
+    !fileId.includes('http')
+  ) {
+    return `https://lh3.googleusercontent.com/d/${fileId}`;
+  }
+
+  return str;
+}
+
+function renderProductImage(
+  product,
+  variant = product.variants?.[0],
+  className = ''
+) {
+  const localFallback = getLocalImageUrl(product);
+
+  const rawInput =
+    product.image_file_id ||
+    product.image_url ||
+    variant?.image_file_id ||
+    variant?.image_url ||
+    '';
+
+  const driveUrl = parseDriveUrl(rawInput);
+  const finalSrc = driveUrl || localFallback;
+
+  if (finalSrc) {
+    return `
+      <img
+        src="${finalSrc}"
+        alt="${product.product_name || 'Gambar produk'}"
+        class="${className}"
+        loading="lazy"
+        onerror="this.style.display='none';"
+      >
+    `;
+  }
+
+  return `
+    <div class="${className}">
+      Gambar produk
+    </div>
+  `;
 }
 
 function apiUrl(action, params = {}) {
   const url = new URL(config.APPS_SCRIPT_URL);
+
   url.searchParams.set('action', action);
+
   Object.entries(params).forEach(([key, value]) => {
-    if (value) url.searchParams.set(key, value);
+    if (value) {
+      url.searchParams.set(key, value);
+    }
   });
+
   return url.toString();
 }
 
 async function fetchApi(action, params = {}) {
   const response = await fetch(apiUrl(action, params));
-  if (!response.ok) throw new Error(`Permintaan katalog gagal (${response.status})`);
+
+  if (!response.ok) {
+    throw new Error(`Permintaan katalog gagal (${response.status})`);
+  }
+
   const data = await response.json();
-  if (!data.ok) throw new Error(data.error || 'Permintaan katalog gagal');
+
+  if (!data.ok) {
+    throw new Error(data.error || 'Permintaan katalog gagal');
+  }
+
   return data;
 }
 
+// Dibuat kosong agar pemanggilan hydrateProductImages()
+// di bagian lain app.js tidak error atau memicu request berulang.
+//
+// Gambar langsung ter-render otomatis lewat renderProductImage.
 function hydrateProductImages(container = document) {
-  container.querySelectorAll('[data-product-image]').forEach(image => {
-    const key = `${image.dataset.skuId}|${image.dataset.productId}`;
-    if (!imageRequests.has(key)) {
-      imageRequests.set(key, fetchApi('image', {
-        sku_id: image.dataset.skuId,
-        product_id: image.dataset.productId
-      }).then(data => data.found ? (data.thumbnail_url || data.image_url || '') : '').catch(error => {
-        console.warn('Product image unavailable:', error);
-        return '';
-      }));
-    }
-
-    imageRequests.get(key).then(url => {
-      if (!image.isConnected) return;
-      const localFallback = image.dataset.localFallback;
-      if (!url && !localFallback) return;
-      image.src = url || localFallback;
-      image.hidden = false;
-      image.onerror = () => {
-        if (url && localFallback) {
-          image.src = localFallback;
-          image.dataset.localFallback = '';
-        } else {
-          image.hidden = true;
-        }
-      };
-    });
-  });
+  // Intentionally empty.
 }
 
 // Initialize the application
@@ -1208,8 +1251,6 @@ function generateOrderId() {
 function buildWaMessage(order) {
   const rp = n => 'Rp' + Number(n).toLocaleString('id-ID');
   const lines = [
-    'Hallo araa, ini rekap order aku yaa',
-    '',
     '*REKAP ORDER JASTIP*',
     `Order ID: ${order.orderId}`
   ];

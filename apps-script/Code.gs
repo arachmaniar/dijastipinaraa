@@ -1,258 +1,507 @@
 /**
- * diJastipinaraa — Google Apps Script backend
+ * JASTIPINARAA — Google Apps Script Backend
  *
- * SETUP
- * 1. Buka Spreadsheet > Extensions > Apps Script, paste file ini.
- * 2. Isi DRIVE_FOLDER_ID di bawah (ID folder induk JASTIPINARAA).
- * 3. (Opsional) jalankan setupSheets_() sekali untuk membuat header tab.
- * 4. Deploy > New deployment > Web app
- *      Execute as: Me | Who has access: Anyone
- *    Salin URL-nya ke APPS_SCRIPT_URL di config.js.
+ * Google Sheet:
+ *   ID   : 1s4OhHxgHpX0pCMJARUpzBAEwkp67OMe39_NlhP9Bu90
+ *   Tab  : Products
  *
- * Foto: beri nama file = sku_id (S001.jpg) atau product_id (P001.jpg) di folder Drive
- *       (share: Anyone with the link - Viewer).
+ * Google Drive:
+ *   Folder ID: 1-9N4UeFHcISI17fLrRj42Xsa9-kD4U1v
+ *
+ * Deployment:
+ *   Deploy > New deployment > Web app
+ *   Execute as: Me
+ *   Who has access: Anyone
+ *
+ * Frontend should send POST body as text/plain containing JSON.
+ * This avoids the common application/json CORS preflight issue with
+ * Apps Script Web Apps.
+ *
+ * Supported actions:
+ *   catalog
+ *   product
+ *   image
+ *   health
+ *
+ * Example POST:
+ *   {"action":"catalog"}
+ *   {"action":"product","product_id":"PROD-001"}
+ *   {"action":"image","sku_id":"SKU-001","product_id":"PROD-001"}
  */
 
-const DRIVE_FOLDER_ID = 'ISI_FOLDER_ID_DRIVE';
-const SHEETS = { products: 'Products', config: 'Config', orders: 'Orders' };
-const CATALOG_CACHE_SEC = 60;
-const IMAGE_CACHE_SEC = 600;
+const CONFIG = {
+  SPREADSHEET_ID: '1s4OhHxgHpX0pCMJARUpzBAEwkp67OMe39_NlhP9Bu90',
+  PRODUCTS_SHEET_NAME: 'Products',
+  DRIVE_FOLDER_ID: '1-9N4UeFHcISI17fLrRj42Xsa9-kD4U1v',
 
-// ---------- Entry points ----------
+  // Expected image extensions.
+  IMAGE_EXTENSIONS: ['jpg', 'jpeg', 'png', 'webp', 'gif'],
+
+  // Only active Products rows are returned by catalog/product.
+  ACTIVE_ONLY: true,
+};
+
+
+/* =========================================================
+ * WEB APP ENTRY POINTS
+ * ======================================================= */
 
 function doGet(e) {
-  const action = (e && e.parameter && e.parameter.action) || 'catalog';
+  const params = (e && e.parameter) || {};
+  const action = params.action || 'health';
+
   try {
-    if (action === 'catalog') return json_(getCatalog_());
-    if (action === 'stock') return json_({ ok: true, stock: getStock_() });
-    return json_({ ok: false, error: 'UNKNOWN_ACTION' });
-  } catch (err) {
-    return json_({ ok: false, error: String(err) });
+    let result;
+
+    switch (action) {
+      case 'health':
+        result = health_();
+        break;
+
+      case 'catalog':
+        result = getCatalog_();
+        break;
+
+      case 'product':
+        result = getProduct_(params.product_id || '');
+        break;
+
+      case 'image':
+        result = getImage_({
+          sku_id: params.sku_id || '',
+          product_id: params.product_id || '',
+        });
+        break;
+
+      default:
+        throw new Error('Unknown action: ' + action);
+    }
+
+    return jsonOutput_(result);
+  } catch (error) {
+    return jsonOutput_(errorResponse_(error));
   }
 }
+
 
 function doPost(e) {
   try {
-    const body = JSON.parse(e.postData.contents);
-    if (body.action === 'order') return json_(createOrder_(body));
-    return json_({ ok: false, error: 'UNKNOWN_ACTION' });
-  } catch (err) {
-    return json_({ ok: false, error: String(err) });
-  }
-}
+    const body = parseRequestBody_(e);
+    const action = body.action || '';
 
-// ---------- Catalog ----------
+    let result;
 
-function getCatalog_() {
-  const cache = CacheService.getScriptCache();
-  const hit = cache.get('catalog');
-  if (hit) return JSON.parse(hit);
+    switch (action) {
+      case 'health':
+        result = health_();
+        break;
 
-  const images = imageMap_();
-  const products = readProducts_()
-    .filter(p => p.active)
-    .map(p => {
-      const fileId = p.image_file_id || images[p.sku_id.toLowerCase()] || images[p.product_id.toLowerCase()] || '';
-      p.image_url_card = fileId ? thumb_(fileId, 400) : '';
-      p.image_url_detail = fileId ? thumb_(fileId, 800) : '';
-      delete p.image_file_id;
-      delete p.active;
-      return p;
-    });
+      case 'catalog':
+        result = getCatalog_();
+        break;
 
-  const result = { ok: true, config: readConfig_(), products: products };
-  const s = JSON.stringify(result);
-  if (s.length < 90000) cache.put('catalog', s, CATALOG_CACHE_SEC); // limit cache 100KB per key
-  return result;
-}
+      case 'product':
+        result = getProduct_(body.product_id || '');
+        break;
 
-function getStock_() {
-  // Tanpa cache: selalu baca stok terbaru
-  const out = {};
-  readProducts_().forEach(p => { out[p.sku_id] = p.active ? p.stock : 0; });
-  return out;
-}
+      case 'image':
+        result = getImage_(body);
+        break;
 
-// ---------- Orders ----------
-
-function createOrder_(body) {
-  const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
-    const cfg = readConfig_();
-    const bySku = {};
-    readProducts_().forEach(p => { bySku[p.sku_id] = p; });
-
-    const items = [];
-    const problems = [];
-    (body.items || []).forEach(i => {
-      const p = bySku[String(i.sku_id)];
-      const qty = Math.floor(Number(i.qty));
-      if (!p || !p.active || !(qty > 0)) { problems.push({ sku_id: i.sku_id, available: 0 }); return; }
-      if (qty > p.stock) { problems.push({ sku_id: p.sku_id, available: p.stock }); return; }
-      items.push(Object.assign({}, p, { qty: qty }));
-    });
-    if (problems.length || !items.length) return { ok: false, error: 'STOCK', problems: problems };
-
-    const totals = calcTotals_(items, cfg);
-    const orderId = String(body.orderId || '').trim() || ('JP-' + Utilities.getUuid().slice(0, 6).toUpperCase());
-
-    const sh = SpreadsheetApp.getActive().getSheetByName(SHEETS.orders);
-    const last = sh.getLastRow();
-    if (last > 1) {
-      const ids = sh.getRange(2, 1, last - 1, 1).getValues().flat();
-      if (ids.indexOf(orderId) !== -1) return { ok: true, orderId: orderId, totals: totals, duplicate: true }; // idempotent
+      default:
+        throw new Error('Unknown or missing action: ' + action);
     }
 
-    const snapshot = items.map(i => ({
-      sku_id: i.sku_id, product_name: i.product_name, variant: i.variant, store_name: i.store_name,
-      qty: i.qty, final_price: i.final_price
-    }));
-    const customer = body.customer || {};
-    sh.appendRow([
-      orderId, new Date(), customer.name || '', customer.note || '', JSON.stringify(snapshot),
-      totals.nominalPembelian, totals.totalBelanja, totals.jumlahToko, totals.feeJastip,
-      totals.ongkirKemasan, totals.grandTotal, 'Pending', false
-    ]);
-    return { ok: true, orderId: orderId, totals: totals };
-  } finally {
-    lock.releaseLock();
+    return jsonOutput_(result);
+  } catch (error) {
+    return jsonOutput_(errorResponse_(error));
   }
 }
 
-// Aturan hitung. Ubah di sini jika aturan ongkir berubah (harus sama dengan calculateShipping() di frontend).
-function calcTotals_(items, cfg) {
-  let nominal = 0, total = 0, qtyAll = 0, ongkir = 0;
-  const stores = {};
-  items.forEach(i => {
-    nominal += i.original_price * i.qty;
-    total += i.final_price * i.qty;
-    qtyAll += i.qty;
-    ongkir += i.shipping_packaging_cost * i.qty; // ASUMSI: biaya per unit
-    stores[normStore_(i.store_name)] = true;
-  });
-  const jumlahToko = Object.keys(stores).length;
-  const fee = jumlahToko * cfg.fee_per_store + Math.max(0, qtyAll - cfg.free_item_qty) * cfg.extra_item_fee;
+
+/* =========================================================
+ * API ACTIONS
+ * ======================================================= */
+
+function health_() {
+  const sheet = getProductsSheet_();
+
   return {
-    nominalPembelian: nominal, totalBelanja: total, jumlahToko: jumlahToko,
-    feeJastip: fee, ongkirKemasan: ongkir, grandTotal: total + fee + ongkir
+    ok: true,
+    service: 'jastipinaraa-gas',
+    sheet: CONFIG.PRODUCTS_SHEET_NAME,
+    sheetLastRow: sheet.getLastRow(),
+    timestamp: new Date().toISOString(),
   };
 }
 
-// Stok berkurang SEKALI saat status order diubah jadi "Confirmed"
-function onEdit(e) {
-  const sh = e.range.getSheet();
-  if (sh.getName() !== SHEETS.orders || e.range.getRow() < 2) return;
-  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
-  const statusCol = head.indexOf('status') + 1;
-  const dedCol = head.indexOf('stock_deducted') + 1;
-  const itemsCol = head.indexOf('items_json') + 1;
-  if (e.range.getColumn() !== statusCol || e.value !== 'Confirmed') return;
 
-  const row = e.range.getRow();
-  if (sh.getRange(row, dedCol).getValue() === true) return;
+/**
+ * Return active product/SKU rows from Products.
+ *
+ * IMPORTANT:
+ * We preserve one object per SKU row.
+ * The frontend can group by product_id for Product Detail variants.
+ */
+function getCatalog_() {
+  const rows = readProducts_();
 
-  const items = JSON.parse(sh.getRange(row, itemsCol).getValue() || '[]');
-  const ps = SpreadsheetApp.getActive().getSheetByName(SHEETS.products);
-  const data = ps.getDataRange().getValues();
-  const h = data[0].map(String);
-  const skuIdx = h.indexOf('sku_id'), stockIdx = h.indexOf('stock');
-  items.forEach(it => {
-    for (let r = 1; r < data.length; r++) {
-      if (String(data[r][skuIdx]).trim() === it.sku_id) {
-        ps.getRange(r + 1, stockIdx + 1).setValue(Math.max(0, Number(data[r][stockIdx]) - it.qty));
-        break;
-      }
-    }
-  });
-  sh.getRange(row, dedCol).setValue(true);
-  CacheService.getScriptCache().remove('catalog');
+  const products = CONFIG.ACTIVE_ONLY
+    ? rows.filter(row => isActive_(row.active))
+    : rows;
+
+  return {
+    ok: true,
+    action: 'catalog',
+    count: products.length,
+    products: products,
+  };
 }
 
-// ---------- Sheet readers ----------
 
-function readTable_(name) {
-  const sh = SpreadsheetApp.getActive().getSheetByName(name);
-  const values = sh.getDataRange().getValues();
-  const head = values[0].map(h => String(h).trim());
-  return values.slice(1)
-    .filter(r => r.some(c => c !== ''))
-    .map(r => { const o = {}; head.forEach((h, i) => { o[h] = r[i]; }); return o; });
+/**
+ * Return all active SKU rows sharing the requested product_id.
+ *
+ * This is the source used by Product Detail to build:
+ *   Pilih Varian
+ *
+ * No variant names are hard-coded here.
+ */
+function getProduct_(productId) {
+  const id = String(productId || '').trim();
+
+  if (!id) {
+    throw new Error('product_id is required');
+  }
+
+  const rows = readProducts_();
+
+  let matches = rows.filter(row =>
+    String(row.product_id || '').trim() === id
+  );
+
+  if (CONFIG.ACTIVE_ONLY) {
+    matches = matches.filter(row => isActive_(row.active));
+  }
+
+  if (!matches.length) {
+    return {
+      ok: true,
+      action: 'product',
+      product_id: id,
+      found: false,
+      skus: [],
+    };
+  }
+
+  return {
+    ok: true,
+    action: 'product',
+    product_id: id,
+    found: true,
+    sku_count: matches.length,
+    skus: matches,
+  };
 }
+
+
+/**
+ * Image lookup:
+ *
+ * 1. Try exact SKU ID first.
+ * 2. If not found, try product ID.
+ *
+ * This matches the user's Drive naming convention.
+ *
+ * IMPORTANT:
+ * The script does NOT change Drive sharing permissions.
+ */
+function getImage_(request) {
+  const skuId = String(request.sku_id || '').trim();
+  const productId = String(request.product_id || '').trim();
+
+  if (!skuId && !productId) {
+    throw new Error('sku_id or product_id is required');
+  }
+
+  const folder = DriveApp.getFolderById(CONFIG.DRIVE_FOLDER_ID);
+
+  let file = null;
+  let matchedBy = null;
+
+  if (skuId) {
+    file = findImageByBaseName_(folder, skuId);
+    if (file) matchedBy = 'sku_id';
+  }
+
+  if (!file && productId) {
+    file = findImageByBaseName_(folder, productId);
+    if (file) matchedBy = 'product_id';
+  }
+
+  if (!file) {
+    return {
+      ok: true,
+      action: 'image',
+      found: false,
+      sku_id: skuId,
+      product_id: productId,
+    };
+  }
+
+  return {
+    ok: true,
+    action: 'image',
+    found: true,
+    matched_by: matchedBy,
+    file_id: file.getId(),
+    file_name: file.getName(),
+    mime_type: file.getMimeType(),
+
+    // Useful metadata for the frontend.
+    // This is NOT guaranteed to be directly embeddable if the file
+    // remains private in Drive.
+    drive_url: file.getUrl(),
+
+    // Google Drive thumbnail endpoint. It requires appropriate
+    // file accessibility when used directly by a browser.
+    thumbnail_url:
+      'https://drive.google.com/thumbnail?id=' +
+      encodeURIComponent(file.getId()) +
+      '&sz=w1000',
+  };
+}
+
+
+/* =========================================================
+ * GOOGLE SHEETS
+ * ======================================================= */
+
+function getProductsSheet_() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(CONFIG.PRODUCTS_SHEET_NAME);
+
+  if (!sheet) {
+    throw new Error(
+      'Sheet tab "' + CONFIG.PRODUCTS_SHEET_NAME + '" was not found.'
+    );
+  }
+
+  return sheet;
+}
+
 
 function readProducts_() {
-  return readTable_(SHEETS.products).map(r => {
-    const finalPrice = num_(r.final_price);
-    return {
-      sku_id: str_(r.sku_id), product_id: str_(r.product_id), category: str_(r.category),
-      product_name: str_(r.product_name), store_name: str_(r.store_name), variant: str_(r.variant),
-      original_price: num_(r.original_price) || finalPrice, final_price: finalPrice,
-      stock: num_(r.stock), shipping_packaging_cost: num_(r.shipping_packaging_cost),
-      description: str_(r.description), material: str_(r.material), weight: str_(r.weight),
-      packaging: str_(r.packaging), short_note: str_(r.short_note),
-      image_file_id: str_(r.image_file_id), active: bool_(r.active)
-    };
-  }).filter(p => p.sku_id && p.product_id);
+  const sheet = getProductsSheet_();
+  const values = sheet.getDataRange().getValues();
+
+  if (!values.length) return [];
+
+  const headers = values[0].map(header =>
+    String(header).trim()
+  );
+
+  validateProductHeaders_(headers);
+
+  return values
+    .slice(1)
+    .filter(row => row.some(cell => cell !== ''))
+    .map(row => {
+      const obj = {};
+
+      headers.forEach((header, index) => {
+        obj[header] = normalizeCell_(row[index]);
+      });
+
+      return obj;
+    });
 }
 
-function readConfig_() {
-  const cfg = { wa_number: '', fee_per_store: 15000, extra_item_fee: 3000, free_item_qty: 3 };
-  readTable_(SHEETS.config).forEach(r => {
-    const k = str_(r.key);
-    if (!k) return;
-    cfg[k] = (k === 'wa_number') ? str_(r.value) : num_(r.value);
-  });
-  return cfg;
+
+function validateProductHeaders_(headers) {
+  const required = [
+    'sku_id',
+    'product_id',
+    'category',
+    'product_name',
+    'store_name',
+    'variant',
+    'original_price',
+    'final_price',
+    'stock',
+    'shipping_packaging_cost',
+    'description',
+    'material',
+    'weight',
+    'packaging',
+    'short_note',
+    'image_file_id',
+    'active',
+  ];
+
+  const missing = required.filter(header =>
+    headers.indexOf(header) === -1
+  );
+
+  if (missing.length) {
+    throw new Error(
+      'Products sheet is missing required columns: ' +
+      missing.join(', ')
+    );
+  }
 }
 
-// ---------- Drive images ----------
 
-function imageMap_() {
-  const cache = CacheService.getScriptCache();
-  const hit = cache.get('images');
-  if (hit) return JSON.parse(hit);
-  const map = {};
-  walk_(DriveApp.getFolderById(DRIVE_FOLDER_ID), map);
-  const s = JSON.stringify(map);
-  if (s.length < 90000) cache.put('images', s, IMAGE_CACHE_SEC);
-  return map;
+/* =========================================================
+ * GOOGLE DRIVE IMAGE SEARCH
+ * ======================================================= */
+
+/**
+ * Searches the supplied folder recursively.
+ *
+ * Filename matching:
+ *   SKU-001.png  -> base name SKU-001
+ *   SKU-001.jpg  -> base name SKU-001
+ *
+ * Also tolerates filenames where Drive has an extension.
+ */
+function findImageByBaseName_(rootFolder, targetId) {
+  const target = normalizeId_(targetId);
+
+  if (!target) return null;
+
+  return findImageRecursive_(rootFolder, target);
 }
 
-function walk_(folder, map) {
+
+function findImageRecursive_(folder, target) {
   const files = folder.getFiles();
+
   while (files.hasNext()) {
-    const f = files.next();
-    if (String(f.getMimeType()).indexOf('image/') !== 0) continue;
-    map[f.getName().replace(/\.[^.]+$/, '').toLowerCase()] = f.getId();
+    const file = files.next();
+
+    if (!isImageFile_(file)) continue;
+
+    const baseName = getBaseName_(file.getName());
+
+    if (normalizeId_(baseName) === target) {
+      return file;
+    }
   }
-  const subs = folder.getFolders();
-  while (subs.hasNext()) walk_(subs.next(), map);
+
+  const folders = folder.getFolders();
+
+  while (folders.hasNext()) {
+    const subfolder = folders.next();
+    const result = findImageRecursive_(subfolder, target);
+
+    if (result) return result;
+  }
+
+  return null;
 }
 
-function thumb_(id, w) { return 'https://drive.google.com/thumbnail?id=' + id + '&sz=w' + w; }
 
-// ---------- Helpers ----------
+function isImageFile_(file) {
+  const mime = String(file.getMimeType() || '').toLowerCase();
 
-function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
-function str_(v) { return v === undefined || v === null ? '' : String(v).trim(); }
-function num_(v) { const n = Number(String(v).replace(/[^\d.-]/g, '')); return isNaN(n) ? 0 : n; }
-function bool_(v) { return v === true || String(v).toUpperCase() === 'TRUE'; }
-function normStore_(s) { return String(s).trim().toLowerCase().replace(/\s+/g, ' '); }
-
-// Jalankan sekali untuk membuat header tab (tidak menimpa tab yang sudah ada)
-function setupSheets_() {
-  const ss = SpreadsheetApp.getActive();
-  const defs = {
-    Products: ['sku_id', 'product_id', 'category', 'product_name', 'store_name', 'variant', 'original_price', 'final_price', 'stock', 'shipping_packaging_cost', 'description', 'material', 'weight', 'packaging', 'short_note', 'image_file_id', 'active'],
-    Config: ['key', 'value'],
-    Orders: ['order_id', 'created_at', 'customer_name', 'note', 'items_json', 'nominal_pembelian', 'total_belanja', 'jumlah_toko', 'fee_jastip', 'ongkir_kemasan', 'grand_total', 'status', 'stock_deducted']
-  };
-  Object.keys(defs).forEach(name => {
-    let sh = ss.getSheetByName(name);
-    if (!sh) { sh = ss.insertSheet(name); sh.getRange(1, 1, 1, defs[name].length).setValues([defs[name]]); }
-  });
-  const cfg = ss.getSheetByName('Config');
-  if (cfg.getLastRow() < 2) {
-    cfg.getRange(2, 1, 4, 2).setValues([['wa_number', ''], ['fee_per_store', 15000], ['extra_item_fee', 3000], ['free_item_qty', 3]]);
+  if (mime.indexOf('image/') === 0) {
+    return true;
   }
+
+  const extension = getExtension_(file.getName());
+
+  return CONFIG.IMAGE_EXTENSIONS.indexOf(extension) !== -1;
+}
+
+
+function getBaseName_(fileName) {
+  const name = String(fileName || '').trim();
+  const lastDot = name.lastIndexOf('.');
+
+  if (lastDot <= 0) return name;
+
+  return name.substring(0, lastDot);
+}
+
+
+function getExtension_(fileName) {
+  const name = String(fileName || '').toLowerCase();
+  const lastDot = name.lastIndexOf('.');
+
+  if (lastDot === -1) return '';
+
+  return name.substring(lastDot + 1);
+}
+
+
+/* =========================================================
+ * HELPERS
+ * ======================================================= */
+
+function parseRequestBody_(e) {
+  if (!e || !e.postData || !e.postData.contents) {
+    return {};
+  }
+
+  const raw = String(e.postData.contents).trim();
+
+  if (!raw) return {};
+
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error('Request body must contain valid JSON.');
+  }
+}
+
+
+function normalizeCell_(value) {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  return value;
+}
+
+
+function normalizeId_(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase();
+}
+
+
+function isActive_(value) {
+  if (value === true) return true;
+
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+
+  return [
+    'true',
+    '1',
+    'yes',
+    'y',
+    'active',
+    'aktif',
+  ].indexOf(normalized) !== -1;
+}
+
+
+function jsonOutput_(payload) {
+  return ContentService
+    .createTextOutput(JSON.stringify(payload))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+
+function errorResponse_(error) {
+  return {
+    ok: false,
+    error: error && error.message
+      ? error.message
+      : String(error),
+  };
 }

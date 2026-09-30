@@ -15,8 +15,11 @@ let state = {
   currentPage: 'intro',
   detailScrollPosition: 0,
   detailCategory: null,
-  detailSearchQuery: null
+  detailSearchQuery: null,
+  detail: { productSkuId: '', selectedSkuId: '', quantity: 1 }
 };
+
+const imageRequests = new Map();
 
 // DOM elements cache
 const dom = {
@@ -24,114 +27,162 @@ const dom = {
   all: (selector) => document.querySelectorAll(selector)
 };
 
+// Mock-catalogue image map. Only files that exist locally are listed here.
+const LOCAL_CATALOG_IMAGES = Object.freeze({
+  'Ayam Utuh Mbah Karto (2 sambal)': 'card-catalogue/Ayam Utuh Mbah Karto (2 sambal).png',
+  'Bakso Alex': 'card-catalogue/Bakso Alex.png',
+  'Kusuma Sari Kroket (isi 6)': 'card-catalogue/Kusuma Sari Kroket (isi 6).png',
+  'Roti Abon Solo Floss Roll (isi 10)': 'card-catalogue/Roti Abon Solo Floss Roll (isi 10).png',
+  'Sarung Katun Prisma H. Santoso': 'card-catalogue/Sarung Katun Prisma H. Santoso.png',
+  'Gendongan Cap Anggur Hijau': 'card-catalogue/Gendongan Cap Anggur Hijau.png'
+});
+
+function getProductForSku(skuId) {
+  return state.products.find(product => product.variants.some(variant => variant.sku_id === skuId));
+}
+
+function getProductById(productId) {
+  return state.products.find(product => product.product_id === productId);
+}
+
+function getLocalImageUrl(product) {
+  return LOCAL_CATALOG_IMAGES[product.product_name] || '';
+}
+
+function renderProductImage(product, variant = product.variants?.[0], className = '') {
+  const localFallbackUrl = getLocalImageUrl(product);
+  const skuId = variant?.sku_id || product.sku_id || '';
+  const fallback = '<div class="placeholder placeholder-text">Gambar produk</div>';
+
+  return `<img class="${className}" data-product-image data-sku-id="${skuId}" data-product-id="${product.product_id}" data-local-fallback="${localFallbackUrl}" alt="${product.product_name}" loading="lazy" hidden>${fallback}`;
+}
+
+function apiUrl(action, params = {}) {
+  const url = new URL(config.APPS_SCRIPT_URL);
+  url.searchParams.set('action', action);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) url.searchParams.set(key, value);
+  });
+  return url.toString();
+}
+
+async function fetchApi(action, params = {}) {
+  const response = await fetch(apiUrl(action, params));
+  if (!response.ok) throw new Error(`Permintaan katalog gagal (${response.status})`);
+  const data = await response.json();
+  if (!data.ok) throw new Error(data.error || 'Permintaan katalog gagal');
+  return data;
+}
+
+function hydrateProductImages(container = document) {
+  container.querySelectorAll('[data-product-image]').forEach(image => {
+    const key = `${image.dataset.skuId}|${image.dataset.productId}`;
+    if (!imageRequests.has(key)) {
+      imageRequests.set(key, fetchApi('image', {
+        sku_id: image.dataset.skuId,
+        product_id: image.dataset.productId
+      }).then(data => data.found ? (data.thumbnail_url || data.image_url || '') : '').catch(error => {
+        console.warn('Product image unavailable:', error);
+        return '';
+      }));
+    }
+
+    imageRequests.get(key).then(url => {
+      if (!image.isConnected) return;
+      const localFallback = image.dataset.localFallback;
+      if (!url && !localFallback) return;
+      image.src = url || localFallback;
+      image.hidden = false;
+      image.onerror = () => {
+        if (url && localFallback) {
+          image.src = localFallback;
+          image.dataset.localFallback = '';
+        } else {
+          image.hidden = true;
+        }
+      };
+    });
+  });
+}
+
 // Initialize the application
 function init() {
   // Load config
   loadConfig();
-  
+
   // Load products (with mock support)
   loadProducts();
-  
+
   // Load cart from localStorage
   loadCart();
-  
+
   // Setup event listeners
   setupEventListeners();
-  
+
   // Initial render
   renderHeader();
-  
+
   // Setup floating WhatsApp button
   setupFloatingWhatsApp();
-  
-  // Check if we should show intro or go directly to catalog
-  if (config.DEV_MOCK) {
-    // In dev mode, skip intro and go directly to catalog
-    showPage('catalog');
-  }
+
+  // Setup hash routing
+  setupHashRouting();
 }
 
 // Load configuration
 function loadConfig() {
   // Use the config object from config.js
   state.config = config;
-  
-  // If using mock, set up mock server
-  if (config.DEV_MOCK) {
-    setupMockServer();
-  }
-}
 
-// Setup mock server for development
-function setupMockServer() {
-  // Override fetch to use mock data for catalog endpoint
-  const originalFetch = window.fetch;
-  window.fetch = function(url, options) {
-    if (typeof url === 'string' && url.includes('action=catalog')) {
-      return fetch(config.DEV_SERVER_URL + '/dev-mock/catalog.json')
-        .then(response => response.json())
-        .then(data => ({
-          ok: true,
-          json: () => Promise.resolve(data)
-        }));
-    }
-    if (typeof url === 'string' && url.includes('action=stock')) {
-      // Mock stock endpoint - return current stock from products
-      const stockMap = {};
-      state.products.forEach(p => {
-        p.variants.forEach(v => {
-          stockMap[v.sku_id] = v.stock;
-        });
-      });
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ ok: true, stock: stockMap })
-      });
-    }
-    return originalFetch(url, options);
-  };
 }
 
 // Load products from API or mock
 async function loadProducts() {
   if (state.loading) return;
-  
+
   state.loading = true;
   renderLoadingState();
-  
+
   try {
-    const response = await fetch(`${config.DEV_MOCK ? config.DEV_SERVER_URL : config.APPS_SCRIPT_URL}?action=catalog`);
-    const data = await response.json();
-    
-    if (data.ok) {
+    const data = await fetchApi('catalog');
       // Validate required fields
       const validProducts = (data.products || []).filter(p => {
         const hasRequired = p.sku_id && p.product_id && p.category && p.product_name && p.store_name && p.final_price !== undefined && p.stock !== undefined;
         if (!hasRequired) {
           console.warn('Product missing required fields:', p);
         }
-        return hasRequired;
-      });
-      
+        return hasRequired && p.active !== false && String(p.active).toLowerCase() !== 'false';
+      }).map(p => ({
+        ...p,
+        original_price: Number(p.original_price) || 0,
+        final_price: Number(p.final_price),
+        stock: Math.max(0, Number(p.stock) || 0)
+      }));
+
       // Group by product_id
       const grouped = groupBy(validProducts, 'product_id');
-      
+
       // Convert to flat array for easier filtering
       const flatProducts = [];
       Object.values(grouped).forEach(productGroup => {
         const first = productGroup[0];
-        const variants = productGroup.filter(p => p.variant);
-        const hasMultipleVariants = variants.length > 0;
-        
+        // Keep every row in the parent product's SKU set, including rows
+        // whose variant label is empty. The SKU remains the cart key.
+        const variants = productGroup;
+        const hasMultipleVariants = variants.length > 1 && variants.some(p => {
+          const name = String(p.variant || '').trim().toLowerCase();
+          return name && name !== 'no variant' && name !== 'standar';
+        });
+
         // Determine price display
         let displayPrice = first.final_price;
         let originalPrice = first.original_price;
         let discountPercent = 0;
-        
+
         if (originalPrice > first.final_price) {
           discountPercent = Math.round((originalPrice - first.final_price) / originalPrice * 100);
         }
-        
+
         // Find cheapest available variant
         const availableVariants = productGroup.filter(p => p.stock > 0);
         if (availableVariants.length > 0) {
@@ -149,7 +200,7 @@ async function loadProducts() {
             discountPercent = Math.round((originalPrice - productGroup[0].final_price) / originalPrice * 100);
           }
         }
-        
+
         flatProducts.push({
           ...first,
           variants: productGroup,
@@ -161,42 +212,31 @@ async function loadProducts() {
           allOutOfStock: productGroup.every(p => p.stock === 0)
         });
       });
-      
+
       state.products = flatProducts;
-      state.config = data.config;
-      
-      // Save to localStorage for offline access
-      localStorage.setItem('dijastipinaraa_products', JSON.stringify({
-        products: state.products,
-        timestamp: Date.now(),
-        config: state.config
-      }));
-      
+      state.config = { ...config, ...(data.config || {}) };
+
+      // The cart is keyed by SKU, so only validate it after every product and
+      // variant is available locally.
+      validateCart();
+
+      // Complete a direct detail URL once the local catalogue is available.
+      const detailMatch = window.location.hash.match(/^#\/produk\/([^/]+)$/);
+      if (state.currentPage === 'detail' && !state.detail.productSkuId && detailMatch) {
+        showProductDetail(decodeURIComponent(detailMatch[1]));
+      }
+
       // Render catalog
       renderCatalog();
-      
+
       // Update floating WhatsApp number
       updateFloatingWhatsApp();
-    } else {
-      throw new Error(data.error || 'Failed to load catalog');
-    }
   } catch (error) {
     console.error('Error loading products:', error);
     state.error = error.message;
     renderErrorState();
-    
-    // Try to load from localStorage as fallback
-    const cached = localStorage.getItem('dijastipinaraa_products');
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      const age = Date.now() - parsed.timestamp;
-      if (age < 3600000) { // 1 hour
-        state.products = parsed.products;
-        state.config = parsed.config;
-        renderCatalog();
-        updateFloatingWhatsApp();
-      }
-    }
+
+    state.products = [];
   } finally {
     state.loading = false;
   }
@@ -223,35 +263,32 @@ function loadCart() {
       state.cart = {};
     }
   }
-  
-  // Validate cart items against current products
-  validateCart();
+
 }
 
 // Validate cart items (remove invalid ones)
 function validateCart() {
-  const validSkuIds = state.products.map(p => p.sku_id);
+  // Catalogue data loads asynchronously. Keep the saved cart intact until
+  // product variants are available to validate against.
+  if (!state.products.length) return;
+
   const newCart = {};
-  
+
   Object.entries(state.cart).forEach(([skuId, qty]) => {
-    if (validSkuIds.includes(skuId)) {
-      const product = state.products.find(p => p.sku_id === skuId);
-      if (product && qty > 0) {
-        // Check stock
-        const variant = product.variants.find(v => v.sku_id === skuId);
-        if (variant && variant.stock >= qty) {
-          newCart[skuId] = qty;
-        } else if (variant && variant.stock === 0) {
-          // Item out of stock, don't add to cart
-          console.log(`Item ${skuId} is out of stock`);
-        } else {
-          // Stock changed, adjust qty
-          newCart[skuId] = Math.min(qty, variant.stock);
-        }
+    const product = getProductForSku(skuId);
+    const variant = product?.variants.find(item => item.sku_id === skuId);
+    const requestedQty = Math.floor(Number(qty));
+
+    if (variant && requestedQty > 0) {
+      if (variant.stock >= requestedQty) {
+        newCart[skuId] = requestedQty;
+      } else if (variant.stock > 0) {
+        // Stock changed, so retain the selected SKU at its current maximum.
+        newCart[skuId] = variant.stock;
       }
     }
   });
-  
+
   state.cart = newCart;
   saveCart();
 }
@@ -263,9 +300,22 @@ function saveCart() {
 
 // Setup event listeners
 function setupEventListeners() {
+  const homeLogo = dom.get('#homeLogo');
+  if (homeLogo) {
+    homeLogo.addEventListener('click', () => showPage('intro'));
+    homeLogo.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        showPage('intro');
+      }
+    });
+  }
+
   // Page navigation
   dom.all('.page button').forEach(btn => {
     btn.addEventListener('click', (e) => {
+      if (e.target.closest('#btnLanjut')) return;
+
       const page = e.target.closest('.page');
       if (page) {
         const targetPage = page.getAttribute('data-page');
@@ -275,7 +325,13 @@ function setupEventListeners() {
       }
     });
   });
-  
+
+  // Page 1 CTA: continue to the existing catalog route.
+  const lanjutBtn = dom.get('#btnLanjut');
+  if (lanjutBtn) {
+    lanjutBtn.addEventListener('click', () => showPage('catalog'));
+  }
+
   // Search input
   const searchInput = dom.get('#searchInput');
   if (searchInput) {
@@ -287,7 +343,7 @@ function setupEventListeners() {
         renderCatalog();
       }, 300);
     });
-    
+
     // Search clear button
     const searchClear = dom.get('#searchClear');
     if (searchClear) {
@@ -298,7 +354,7 @@ function setupEventListeners() {
       });
     }
   }
-  
+
   // Category navigation
   const categoryNav = dom.get('#categoryNav');
   if (categoryNav) {
@@ -306,31 +362,31 @@ function setupEventListeners() {
       const chip = e.target.closest('.category-chip');
       if (chip && chip.dataset.category) {
         const category = chip.dataset.category;
-        
+
         // If clicking active category, reset to 'Semua'
         if (state.activeCategory === category) {
           state.activeCategory = 'Semua';
         } else {
           state.activeCategory = category;
         }
-        
+
         // Update active state in UI
         dom.all('.category-chip').forEach(c => {
           c.classList.toggle('active', c.dataset.category === state.activeCategory);
           c.setAttribute('aria-selected', c.dataset.category === state.activeCategory ? 'true' : 'false');
         });
-        
+
         renderCatalog();
       }
     });
   }
-  
+
   // Retry button
   const retryBtn = dom.get('#btnRetry');
   if (retryBtn) {
     retryBtn.addEventListener('click', loadProducts);
   }
-  
+
   // Reset search button
   const resetSearchBtn = dom.get('#btnResetSearch');
   if (resetSearchBtn) {
@@ -340,7 +396,7 @@ function setupEventListeners() {
       renderCatalog();
     });
   }
-  
+
   // Cart actions
   const clearCartBtn = dom.get('#btnClearAll');
   if (clearCartBtn) {
@@ -350,27 +406,23 @@ function setupEventListeners() {
       }
     });
   }
-  
+
   // Generate Order button
   const generateOrderBtn = dom.get('#btnGenerateOrder');
   if (generateOrderBtn) {
     generateOrderBtn.addEventListener('click', generateOrder);
   }
-  
-  // Customer inputs
-  const customerNameInput = dom.get('#customerName');
-  const customerNoteInput = dom.get('#customerNote');
-  if (customerNameInput) {
-    customerNameInput.addEventListener('input', () => {
-      renderSummary();
-    });
+
+  const copyOrderBtn = dom.get('#btnCopyOrder');
+  if (copyOrderBtn) copyOrderBtn.addEventListener('click', copyOrder);
+
+  const goCatalogBtn = dom.get('#btnGoCatalog');
+  if (goCatalogBtn) {
+    goCatalogBtn.addEventListener('click', () => showPage('catalog'));
   }
-  if (customerNoteInput) {
-    customerNoteInput.addEventListener('input', () => {
-      renderSummary();
-    });
-  }
-  
+  const goCatalogTopBtn = dom.get('#btnGoCatalogTop');
+  if (goCatalogTopBtn) goCatalogTopBtn.addEventListener('click', () => showPage('catalog'));
+
   // Window resize for responsive behavior
   let resizeTimeout;
   window.addEventListener('resize', () => {
@@ -381,20 +433,23 @@ function setupEventListeners() {
   });
 }
 
-// Show a page
+// Show a page and update hash
 function showPage(pageName) {
   // Save scroll position for current page
   if (state.currentPage) {
-    const currentElement = dom.get(`#${pageName === 'intro' ? 'pageIntro' : pageName === 'catalog' ? 'pageCatalog' : pageName === 'detail' ? 'pageDetail' : 'pageRecap'}`);
+    const currentElement = dom.get(`#${state.currentPage === 'intro' ? 'pageIntro' : state.currentPage === 'catalog' ? 'pageCatalog' : state.currentPage === 'detail' ? 'pageDetail' : 'pageRecap'}`);
     if (currentElement) {
       state.scrollPositions[state.currentPage] = currentElement.scrollTop;
     }
   }
-  
-  // Hide all pages
-  dom.all('.page').forEach(p => p.classList.remove('active'));
-  
-  // Show target page
+
+  // Hide all pages by adding hidden attribute
+  dom.all('.page').forEach(p => {
+    p.hidden = true;
+    p.classList.remove('active');
+  });
+
+  // Show target page by removing hidden attribute
   let targetElement;
   switch (pageName) {
     case 'intro': targetElement = dom.get('#pageIntro'); break;
@@ -402,11 +457,12 @@ function showPage(pageName) {
     case 'detail': targetElement = dom.get('#pageDetail'); break;
     case 'recap': targetElement = dom.get('#pageRecap'); break;
   }
-  
+
   if (targetElement) {
+    targetElement.hidden = false;
     targetElement.classList.add('active');
     state.currentPage = pageName;
-    
+
     // Restore scroll position
     const savedScroll = state.scrollPositions[pageName];
     if (savedScroll !== undefined) {
@@ -414,10 +470,14 @@ function showPage(pageName) {
     } else {
       targetElement.scrollTo(0, 0);
     }
-    
+
+    // Update hash routing
+    updateHash(pageName);
+
     // Update header
     renderHeader();
-    
+    updateFloatingWhatsApp();
+
     // Page-specific actions
     switch (pageName) {
       case 'catalog':
@@ -433,27 +493,75 @@ function showPage(pageName) {
   }
 }
 
+// Update browser hash
+function updateHash(pageName) {
+  let hash = '/';
+  switch (pageName) {
+    case 'intro': hash = '/'; break;
+    case 'catalog': hash = '#/katalog'; break;
+    case 'detail':
+      hash = state.detail.productSkuId
+        ? `#/produk/${encodeURIComponent(state.detail.productSkuId)}`
+        : (window.location.hash.startsWith('#/produk/') ? window.location.hash : '#/produk');
+      break;
+    case 'recap': hash = '#/rekap'; break;
+  }
+  window.location.hash = hash;
+}
+
+// Setup hash routing on page load and hash change
+function setupHashRouting() {
+  // Check initial hash on page load
+  function checkHash() {
+    const hash = window.location.hash || '/';
+    let pageName;
+
+    if (hash === '' || hash === '/') {
+      pageName = 'intro';
+    } else if (hash === '#/katalog') {
+      pageName = 'catalog';
+    } else if (hash === '#/rekap') {
+      pageName = 'recap';
+    } else if (hash === '#/produk' || hash.startsWith('#/produk/')) {
+      const skuId = hash.startsWith('#/produk/') ? decodeURIComponent(hash.slice('#/produk/'.length)) : '';
+      if (skuId && skuId !== state.detail.productSkuId && getProductById(skuId)) {
+        showProductDetail(skuId);
+        return;
+      }
+      pageName = 'detail';
+    } else {
+      pageName = 'intro'; // Default to intro for unknown hashes
+    }
+
+    showPage(pageName);
+  }
+
+  // Initial check
+  checkHash();
+
+  // Listen for hash changes
+  window.addEventListener('hashchange', checkHash);
+}
+
 // Render header
 function renderHeader() {
   const headerActions = dom.get('#headerActions');
   if (!headerActions) return;
-  
+
   const isIntro = state.currentPage === 'intro';
-  const isCatalog = state.currentPage === 'catalog';
-  const isDetail = state.currentPage === 'detail';
-  
+
   if (isIntro) {
     headerActions.innerHTML = '';
   } else {
-    let html = '';
-    
-    if (isCatalog || isDetail) {
-      html += `<button class="icon-btn" onclick="showPage('catalog')">Katalog</button>`;
-    }
-    
-    html += `<button class="icon-btn" onclick="showPage('recap')">🛒 <span class="cart-count">${Object.values(state.cart).reduce((a, b) => a + b, 0)}</span></button>`;
-    
-    headerActions.innerHTML = html;
+    const cartCount = Object.values(state.cart).reduce((a, b) => a + b, 0);
+    headerActions.innerHTML = `
+      <button class="icon-btn cart-icon-btn" onclick="showPage('recap')" aria-label="Buka keranjang">
+        <svg class="cart-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6.5 8.5h11l1 11h-13l1-11Z"></path>
+          <path d="M9 8.5V7a3 3 0 0 1 6 0v1.5"></path>
+        </svg>
+        ${cartCount > 0 ? `<span class="cart-count">${cartCount}</span>` : ''}
+      </button>`;
   }
 }
 
@@ -463,18 +571,31 @@ function renderCatalog() {
   const sectionTitle = dom.get('#sectionTitle');
   const productCount = dom.get('#productCount');
   const emptyState = dom.get('#emptyState');
-  
+
   if (!productGrid || !sectionTitle || !productCount) return;
-  
+
+  const errorState = dom.get('#errorState');
+  const loadingState = dom.get('#loadingState');
+  if (errorState) errorState.hidden = true;
+  if (loadingState) loadingState.hidden = true;
+
   // Update section title
   sectionTitle.textContent = state.activeCategory === 'Semua' ? 'Semua Produk' : state.activeCategory;
-  
+  dom.all('.category-chip').forEach(chip => {
+    const isActive = chip.dataset.category === state.activeCategory;
+    chip.classList.toggle('active', isActive);
+    chip.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+
+  const searchClear = dom.get('#searchClear');
+  if (searchClear) searchClear.hidden = !state.searchQuery.trim();
+
   // Filter products
   const filteredProducts = getFilteredProducts();
-  
+
   // Update count
   productCount.textContent = filteredProducts.length + ' produk';
-  
+
   // Show/hide empty state
   if (filteredProducts.length === 0) {
     emptyState.hidden = false;
@@ -483,20 +604,21 @@ function renderCatalog() {
   } else {
     emptyState.hidden = true;
   }
-  
+
   // Render products
   productGrid.innerHTML = filteredProducts.map(product => renderProductCard(product)).join('');
+  hydrateProductImages(productGrid);
 }
 
 // Get filtered products based on search and category
 function getFilteredProducts() {
+  const query = state.searchQuery.trim().toLowerCase();
   return state.products.filter(product => {
     const matchesCategory = state.activeCategory === 'Semua' || product.category === state.activeCategory;
-    
-    const matchesSearch = !state.searchQuery ||
-      product.product_name.toLowerCase().includes(state.searchQuery.toLowerCase()) ||
-      product.store_name.toLowerCase().includes(state.searchQuery.toLowerCase());
-    
+    const matchesSearch = !query ||
+      product.product_name.toLowerCase().includes(query) ||
+      product.store_name.toLowerCase().includes(query);
+
     return matchesCategory && matchesSearch;
   });
 }
@@ -505,21 +627,21 @@ function getFilteredProducts() {
 function renderProductCard(product) {
   const hasStock = product.availableStock > 0;
   const isOutOfStock = product.allOutOfStock;
-  
+
   // Determine price display
   let priceHtml = '';
-  if (product.variants.length > 1) {
+  if (product.hasMultipleVariants) {
     // Multiple variants - show "Mulai dari"
-    priceHtml = `<div class="price"><span class="new">Mulai dari ${formatRupiah(product.displayPrice)}</span></div>`;
+    priceHtml = `<div class="price price-from"><span class="from-label">Mulai dari</span><span class="new">${formatRupiah(product.displayPrice)}</span></div>`;
   } else {
     // Single variant
     if (product.discountPercent > 0) {
-      priceHtml = `<div class="price"><span class="old">${formatRupiah(product.originalPrice)}</span><span class="new">${formatRupiah(product.displayPrice)}</span></div><div class="badge">Diskon ${product.discountPercent}%</div>`;
+      priceHtml = `<div class="price"><span class="old">${formatRupiah(product.originalPrice)}</span><span class="new">${formatRupiah(product.displayPrice)}</span></div>`;
     } else {
       priceHtml = `<div class="price"><span class="new">${formatRupiah(product.displayPrice)}</span></div>`;
     }
   }
-  
+
   // Add out of stock badge
   let badgeHtml = '';
   if (isOutOfStock) {
@@ -527,16 +649,12 @@ function renderProductCard(product) {
   } else if (product.discountPercent > 0) {
     badgeHtml = `<div class="badge">Diskon ${product.discountPercent}%</div>`;
   }
-  
-  // Card image
-  const imageUrl = product.image_url_card || `https://picsum.photos/seed/${product.sku_id}/400/400.jpg`;
-  
+
   return `
-    <article class="card" role="listitem">
-      <div class="photo" onclick="showProductDetail('${product.sku_id}')">
+    <article class="card" role="listitem" onclick="showProductDetail('${product.product_id}')">
+      <div class="photo">
         ${badgeHtml}
-        <img src="${imageUrl}" alt="${product.product_name}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='grid';">
-        <div class="placeholder" style="display:none;">${product.icon || '📦'}</div>
+        ${renderProductImage(product, product.variants.find(variant => variant.stock > 0) || product.variants[0])}
       </div>
       <div class="card-body">
         <div class="name" title="${product.product_name}">${product.product_name}</div>
@@ -550,39 +668,56 @@ function renderProductCard(product) {
 }
 
 // Show product detail
-function showProductDetail(skuId) {
-  const product = state.products.find(p => p.sku_id === skuId);
+function showProductDetail(productId, selectedSkuId = '', preserveQuantity = false) {
+  const product = getProductById(productId) || getProductForSku(productId);
   if (!product) return;
-  
+
   // Save current state for back navigation
   state.detailScrollPosition = window.scrollY;
   state.detailCategory = state.activeCategory;
   state.detailSearchQuery = state.searchQuery;
-  
+
   // Render detail content
-  const detailContainer = dom.get('#detailContent');
+  const detailContainer = dom.get('#detailContainer');
   if (!detailContainer) return;
-  
+
   const variants = product.variants;
-  const hasMultipleVariants = variants.length > 1;
-  const selectedVariant = variants[0];
-  
+  // HANYA tampilkan pilihan varian jika ada lebih dari 1 varian DAN namanya bukan "No Variant" / kosong
+  const hasMultipleVariants = variants.length > 1 && variants.some(v => {
+    const name = String(v.variant || '').trim().toLowerCase();
+    return name !== '' && name !== 'no variant' && name !== 'standar';
+  });
+
+  const selectedVariant = (preserveQuantity && variants.find(variant => variant.sku_id === selectedSkuId)) ||
+    variants.find(variant => variant.stock > 0) || variants[0];
+  const availableQty = getDetailAvailableQuantity(selectedVariant);
+  const previousQuantity = preserveQuantity && state.detail.selectedSkuId === selectedVariant.sku_id
+    ? state.detail.quantity
+    : 1;
+  const quantity = availableQty ? Math.min(Math.max(1, previousQuantity), availableQty) : 1;
+
+  state.detail = {
+    productSkuId: product.product_id,
+    selectedSkuId: selectedVariant.sku_id,
+    quantity
+  };
+
   // Build variant selector
   let variantSelectorHtml = '';
   if (hasMultipleVariants) {
     variantSelectorHtml = `
       <div class="variant-selector">
-        <label>Varian:</label>
+        <label>Pilih Varian</label>
         <div class="variant-chips">
           ${variants.map(variant => {
             const isSelected = variant.sku_id === selectedVariant.sku_id;
             const isOutOfStock = variant.stock === 0;
             return `
               <button class="variant-chip ${isSelected ? 'selected' : ''} ${isOutOfStock ? 'disabled' : ''}"
-                      onclick="selectVariant('${product.sku_id}', '${variant.sku_id}')"
+                      onclick="selectVariant('${product.product_id}', '${variant.sku_id}')"
                       ${isOutOfStock ? 'disabled' : ''}>
-                <span>${variant.variant || 'Standar'}</span>
-                <span class="stock-label">${variant.stock > 0 ? `Tersedia${variant.stock <= 5 ? ` (${variant.stock})` : ''}` : 'Habis'}</span>
+                <span>${variant.variant || ''}</span>
+                <span class="stock-label">${variant.stock > 0 ? `Sisa ${variant.stock}` : 'Habis'}</span>
               </button>
             `;
           }).join('')}
@@ -590,7 +725,7 @@ function showProductDetail(skuId) {
       </div>
     `;
   }
-  
+
   // Build price display
   let priceHtml = '';
   if (selectedVariant.original_price > selectedVariant.final_price) {
@@ -609,18 +744,16 @@ function showProductDetail(skuId) {
       </div>
     `;
   }
-  
-  // Build image URL
-  const imageUrl = selectedVariant.image_url_detail || `https://picsum.photos/seed/${selectedVariant.sku_id}/800/800.jpg`;
-  
+
   detailContainer.innerHTML = `
-    <button class="icon-btn" onclick="goBackToCatalog()">← Kembali</button>
+    <button class="detail-back" onclick="goBackToCatalog()">← Kembali</button>
     <div class="detail-photo">
-      <img src="${imageUrl}" alt="${product.product_name}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='grid';">
-      <div class="placeholder" style="display:none;">${product.icon || '📦'}</div>
+      ${renderProductImage(product, selectedVariant)}
     </div>
     <h1>${product.product_name}</h1>
+    <div class="detail-category">${product.category}</div>
     <div class="store-lg">⌂ ${product.store_name}</div>
+    ${priceHtml}
     <p class="desc">${product.description || ''}</p>
     <div class="facts">
       <div class="fact">
@@ -629,7 +762,7 @@ function showProductDetail(skuId) {
       </div>
       <div class="fact">
         <span>Berat</span>
-        <b>${product.weight || ''}</b>
+        <b>${product.weight ? `${String(product.weight).trim().replace(/\s*g$/i, '')} g` : ''}</b>
       </div>
       <div class="fact">
         <span>Kemasan</span>
@@ -638,20 +771,60 @@ function showProductDetail(skuId) {
     </div>
     ${variantSelectorHtml}
     <div class="stock-status" id="stockStatus">
-      ${selectedVariant.stock > 0 ? `
-        <span class="stock-available">Tersedia</span>
-        ${selectedVariant.stock <= 5 ? `<span class="stock-count">Sisa ${selectedVariant.stock}</span>` : ''}
-      ` : '\n        <span class="stock-out">Habis</span>\n      '}
+      ${selectedVariant.stock > 0 ? '' : '<span class="stock-out">Habis</span>'}
+    </div>
+    <div class="detail-quantity" aria-label="Jumlah produk">
+      <span>Jumlah</span>
+      <div class="detail-quantity-controls">
+        <button type="button" onclick="changeDetailQuantity(-1)" ${availableQty === 0 || quantity <= 1 ? 'disabled' : ''} aria-label="Kurangi jumlah">−</button>
+        <input type="number" value="${quantity}" min="1" max="${availableQty}" inputmode="numeric" ${availableQty === 0 ? 'disabled' : ''} onchange="setDetailQuantity(this.value)" aria-label="Jumlah">
+        <button type="button" onclick="changeDetailQuantity(1)" ${availableQty === 0 || quantity >= availableQty ? 'disabled' : ''} aria-label="Tambah jumlah">+</button>
+      </div>
     </div>
     <button class="btn btn-primary btn-full"
-            onclick="addToCart('${selectedVariant.sku_id}')"
+            onclick="addDetailToCart()"
             id="addToCartBtn"
-            ${selectedVariant.stock === 0 ? 'disabled' : ''}>
+            ${availableQty === 0 ? 'disabled' : ''}>
       Tambah ke Keranjang
     </button>
   `;
-  
+
+  hydrateProductImages(detailContainer);
+
   showPage('detail');
+
+  if (!preserveQuantity) refreshProductDetail(product.product_id, selectedVariant.sku_id);
+}
+
+async function refreshProductDetail(productId, selectedSkuId) {
+  try {
+    const data = await fetchApi('product', { product_id: productId });
+    if (!data.found || !Array.isArray(data.skus) || !data.skus.length) return;
+    const variants = data.skus.filter(row => row.active !== false && String(row.active).toLowerCase() !== 'false').map(row => ({
+      ...row,
+      original_price: Number(row.original_price) || 0,
+      final_price: Number(row.final_price),
+      stock: Math.max(0, Number(row.stock) || 0)
+    }));
+    if (!variants.length) return;
+    const index = state.products.findIndex(product => product.product_id === productId);
+    if (index === -1) return;
+    const first = variants[0];
+    const availableVariants = variants.filter(variant => variant.stock > 0);
+    const displayVariant = availableVariants.reduce((lowest, variant) => !lowest || variant.final_price < lowest.final_price ? variant : lowest, null) || first;
+    state.products[index] = {
+      ...state.products[index], ...first, variants,
+      displayPrice: displayVariant.final_price,
+      originalPrice: displayVariant.original_price,
+      availableStock: availableVariants.reduce((sum, variant) => sum + variant.stock, 0),
+      allOutOfStock: variants.every(variant => variant.stock === 0)
+    };
+    if (state.currentPage === 'detail' && state.detail.productSkuId === productId) {
+      showProductDetail(productId, selectedSkuId, true);
+    }
+  } catch (error) {
+    console.warn('Unable to refresh product variants:', error);
+  }
 }
 
 // Go back to catalog
@@ -659,49 +832,81 @@ function goBackToCatalog() {
   // Restore state
   if (state.detailCategory) state.activeCategory = state.detailCategory;
   if (state.detailSearchQuery) state.searchQuery = state.detailSearchQuery;
-  
+
   // Restore scroll position
   if (state.detailScrollPosition) {
     window.scrollTo(0, state.detailScrollPosition);
   }
-  
+
   showPage('catalog');
 }
 
 // Select variant in detail
 function selectVariant(productId, variantSkuId) {
-  const product = state.products.find(p => p.sku_id === productId);
+  const product = getProductById(productId);
   if (!product) return;
-  
+
   const variant = product.variants.find(v => v.sku_id === variantSkuId);
   if (!variant) return;
-  
+
   // Update detail view
-  showProductDetail(variantSkuId);
+  showProductDetail(productId, variantSkuId, true);
 }
 
 // Add to cart
-function addToCart(skuId) {
-  const product = state.products.find(p => p.sku_id === skuId);
+function addToCart(skuId, addSelectedVariant = false, quantity = 1) {
+  const product = getProductForSku(skuId);
   if (!product) return;
-  
+
   const variant = product.variants.find(v => v.sku_id === skuId);
   if (!variant) return;
-  
+
   // Check if product has multiple variants
   const hasMultipleVariants = product.variants.length > 1;
-  
-  if (hasMultipleVariants) {
+
+  if (hasMultipleVariants && !addSelectedVariant) {
     // Multiple variants - open detail to select
     showProductDetail(skuId);
   } else {
-    // Single variant - add directly to cart
-    if (variant.stock > 0) {
-      state.cart[skuId] = (state.cart[skuId] || 0) + 1;
+    const requestedQty = Math.max(1, Math.floor(Number(quantity) || 1));
+    const currentQty = state.cart[skuId] || 0;
+    if (variant.stock - currentQty >= requestedQty) {
+      state.cart[skuId] = currentQty + requestedQty;
       saveCart();
       renderHeader();
       renderCart();
+      return true;
     }
+  }
+
+  return false;
+}
+
+function getDetailAvailableQuantity(variant) {
+  return Math.max(0, Number(variant.stock) - Number(state.cart[variant.sku_id] || 0));
+}
+
+function changeDetailQuantity(delta) {
+  setDetailQuantity(state.detail.quantity + delta);
+}
+
+function setDetailQuantity(value) {
+  const product = getProductById(state.detail.productSkuId);
+  const variant = product?.variants.find(item => item.sku_id === state.detail.selectedSkuId);
+  if (!product || !variant) return;
+
+  const max = getDetailAvailableQuantity(variant);
+  const requested = Math.floor(Number(value));
+  state.detail.quantity = max ? Math.min(Math.max(1, Number.isFinite(requested) ? requested : 1), max) : 1;
+  showProductDetail(product.product_id, variant.sku_id, true);
+}
+
+function addDetailToCart() {
+  const { productSkuId, selectedSkuId, quantity } = state.detail;
+  if (!productSkuId || !selectedSkuId) return;
+
+  if (addToCart(selectedSkuId, true, quantity)) {
+    showProductDetail(productSkuId, selectedSkuId, true);
   }
 }
 
@@ -712,11 +917,11 @@ function renderCart() {
   const summaryCard = dom.get('#summaryCard');
   const customerInputs = dom.get('#customerInputs');
   const generateOrderBtn = dom.get('#btnGenerateOrder');
-  
+
   if (!cartList) return;
-  
+
   const cartItems = Object.entries(state.cart);
-  
+
   if (cartItems.length === 0) {
     cartList.innerHTML = '';
     emptyCart.hidden = false;
@@ -730,31 +935,30 @@ function renderCart() {
     customerInputs.hidden = false;
     generateOrderBtn.disabled = false;
   }
-  
+
   // Render cart items
   cartList.innerHTML = cartItems.map(([skuId, qty]) => {
-    const product = state.products.find(p => p.sku_id === skuId);
+    const product = getProductForSku(skuId);
     if (!product) return '';
-    
+
     const variant = product.variants.find(v => v.sku_id === skuId);
     if (!variant) return '';
-    
-    const imageUrl = variant.image_url_detail || `https://picsum.photos/seed/${skuId}/58/58.jpg`;
+
     const price = variant.final_price;
     const total = price * qty;
-    
+
     return `
       <div class="item" data-sku-id="${skuId}">
         <div class="thumb">
-          <img src="${imageUrl}" alt="${product.product_name}" onerror="this.style.display='none'; this.nextElementSibling.style.display='grid';">
-          <div class="placeholder" style="display:none;">${product.icon || '📦'}</div>
+          ${renderProductImage(product, variant)}
         </div>
         <div class="item-main">
           <div class="name">${product.product_name}</div>
           <div class="store">⌂ ${product.store_name}</div>
           <div class="variant" id="variant-${skuId}">${variant.variant ? `(${variant.variant})` : ''}</div>
+          <div class="item-unit-price">${formatRupiah(price)} / item</div>
         </div>
-        <div class="item-price">${formatRupiah(total)}</div>
+        <div class="item-price"><span>Subtotal</span><strong>${formatRupiah(total)}</strong></div>
         <div class="qty">
           <button onclick="changeQty('${skuId}', -1)">-</button>
           <span>${qty}</span>
@@ -764,22 +968,23 @@ function renderCart() {
       </div>
     `;
   }).join('');
-  
+  hydrateProductImages(cartList);
+
   // Render summary
   renderSummary();
 }
 
 // Change quantity in cart
 function changeQty(skuId, delta) {
-  const product = state.products.find(p => p.sku_id === skuId);
+  const product = getProductForSku(skuId);
   if (!product) return;
-  
+
   const variant = product.variants.find(v => v.sku_id === skuId);
   if (!variant) return;
-  
+
   const currentQty = state.cart[skuId] || 0;
   const newQty = currentQty + delta;
-  
+
   if (newQty <= 0) {
     removeFromCart(skuId);
   } else if (newQty <= variant.stock) {
@@ -810,98 +1015,55 @@ function clearCart() {
 function renderSummary() {
   const summaryRows = dom.get('#summaryRows');
   const summaryTotal = dom.get('#summaryTotal');
-  
+
   if (!summaryRows || !summaryTotal) return;
-  
+
   const cartItems = Object.entries(state.cart);
   if (cartItems.length === 0) {
     summaryRows.innerHTML = '';
     summaryTotal.innerHTML = '';
     return;
   }
-  
-  // Calculate totals
-  const items = [];
-  let nominalPembelian = 0;
-  let totalBelanja = 0;
-  const storeSet = new Set();
-  let totalQty = 0;
-  let ongkirKemasan = 0;
-  
-  cartItems.forEach(([skuId, qty]) => {
-    const product = state.products.find(p => p.sku_id === skuId);
-    if (!product) return;
-    
-    const variant = product.variants.find(v => v.sku_id === skuId);
-    if (!variant) return;
-    
-    const item = {
-      sku_id: skuId,
-      product_name: product.product_name,
-      store_name: product.store_name,
-      variant: variant.variant || null,
-      original_price: variant.original_price || variant.final_price,
-      final_price: variant.final_price,
-      qty: qty,
-      shipping_packaging_cost: variant.shipping_packaging_cost || 0
-    };
-    
-    items.push(item);
-    nominalPembelian += item.original_price * item.qty;
-    totalBelanja += item.final_price * item.qty;
-    storeSet.add(normalizeStore(item.store_name));
-    totalQty += item.qty;
-    ongkirKemasan += item.shipping_packaging_cost * item.qty;
-  });
-  
-  // Calculate fee
-  const jumlahToko = storeSet.size;
-  const feeJastip = jumlahToko * (state.config?.fee_per_store || 15000) +
-    Math.max(0, totalQty - (state.config?.free_item_qty || 3)) * (state.config?.extra_item_fee || 3000);
-  
-  const grandTotal = totalBelanja + feeJastip + ongkirKemasan;
-  
+
+  const totals = calculateTotals();
+
   // Render summary rows
   summaryRows.innerHTML = `
     <div class="row">
       <span>Nominal pembelian<small>Harga sebelum diskon</small></span>
-      <b>${formatRupiah(nominalPembelian)}</b>
+      <b>${formatRupiah(totals.nominalPembelian)}</b>
     </div>
     <div class="row">
       <span>Total Belanja<small>Harga setelah diskon</small></span>
-      <b>${formatRupiah(totalBelanja)}</b>
+      <b>${formatRupiah(totals.totalBelanja)}</b>
     </div>
     <div class="row">
       <span>Jumlah Toko</span>
-      <b>${jumlahToko}</b>
+      <b>${totals.jumlahToko}</b>
     </div>
     <div class="row">
-      <span>Fee Jastip<small>Rp${(state.config?.fee_per_store || 15000).toLocaleString('id-ID')}/toko + Rp${(state.config?.extra_item_fee || 3000).toLocaleString('id-ID')}/item ke-${(state.config?.free_item_qty || 3) + 1}</small></span>
-      <b>${formatRupiah(feeJastip)}</b>
+      <span>Fee Jastip<small>Rp 15.000/toko<br>tambahan biaya Rp 3.000 mulai dari item ke-4</small></span>
+      <b>${formatRupiah(totals.feeJastip)}</b>
     </div>
     <div class="row">
-      <span>Ongkir & Kemasan<small>Ambil dari Google Sheet</small></span>
-      <b>${formatRupiah(ongkirKemasan)}</b>
+      <span>Ongkir & Kemasan<small>Biaya per item dari katalog</small></span>
+      <b>${formatRupiah(totals.ongkirKemasan)}</b>
     </div>
   `;
-  
+
   // Render total
   summaryTotal.innerHTML = `
     <span>Total</span>
-    <span>${formatRupiah(grandTotal)}</span>
+    <span>${formatRupiah(totals.grandTotal)}</span>
   `;
-  
-  // Update customer inputs state
-  const customerName = dom.get('#customerName');
-  const customerNote = dom.get('#customerNote');
-  if (customerName) customerName.value = '';
-  if (customerNote) customerNote.value = '';
-  
+
   // Enable/disable generate button
   const generateOrderBtn = dom.get('#btnGenerateOrder');
   if (generateOrderBtn) {
     generateOrderBtn.disabled = cartItems.length === 0;
   }
+  const copyOrderBtn = dom.get('#btnCopyOrder');
+  if (copyOrderBtn) copyOrderBtn.disabled = cartItems.length === 0;
 }
 
 // Normalize store name (for counting unique stores)
@@ -914,189 +1076,52 @@ function formatRupiah(amount) {
   return 'Rp' + Number(amount).toLocaleString('id-ID');
 }
 
-// Generate order
-async function generateOrder() {
-  const generateOrderBtn = dom.get('#btnGenerateOrder');
-  const generateInfo = dom.get('#generateInfo');
-  
-  if (!generateOrderBtn || !generateInfo) return;
-  
-  // Disable button to prevent double submit
-  generateOrderBtn.disabled = true;
-  generateOrderBtn.textContent = 'Memproses...';
-  
-  try {
-    // Validate cart not empty
-    const cartItems = Object.entries(state.cart);
-    if (cartItems.length === 0) {
-      throw new Error('Keranjang kosong');
-    }
-    
-    // Validate stock
-    const stockValidation = await validateStock();
-    if (!stockValidation.ok) {
-      alert('Stok tidak cukup untuk beberapa item:\n' +
-        stockValidation.problems.map(p => `\n${p.sku_id}: tersedia ${p.available}`).join(''));
-      generateOrderBtn.disabled = false;
-      generateOrderBtn.textContent = 'Generate Order';
-      return;
-    }
-    
-    // Calculate totals
-    const totals = calculateTotals();
-    
-    // Generate order ID
-    const orderId = generateOrderId();
-    
-    // Prepare order data
-    const customer = {
-      name: dom.get('#customerName')?.value || '',
-      note: dom.get('#customerNote')?.value || ''
+function currentOrderMessage() {
+  const cartItems = Object.entries(state.cart);
+  const totals = calculateTotals();
+  const items = cartItems.map(([skuId, qty]) => {
+    const product = getProductForSku(skuId);
+    const variant = product?.variants.find(v => v.sku_id === skuId);
+    return {
+      sku_id: skuId, qty,
+      product_name: product?.product_name || '',
+      store_name: product?.store_name || '',
+      variant: variant?.variant || null,
+      final_price: variant?.final_price || 0
     };
-    
-    const items = cartItems.map(([skuId, qty]) => {
-      const product = state.products.find(p => p.sku_id === skuId);
-      const variant = product?.variants.find(v => v.sku_id === skuId);
-      return { sku_id: skuId, qty };
-    });
-    
-    // Submit to server
-    const response = await fetch(config.APPS_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'order',
-        orderId,
-        customer,
-        items
-      })
-    });
-    
-    const data = await response.json();
-    
-    if (data.ok) {
-      // Success - open WhatsApp
-      const waMessage = buildWaMessage({
-        orderId,
-        customerName: customer.name,
-        note: customer.note,
-        items: items.map(item => {
-          const product = state.products.find(p => p.sku_id === item.sku_id);
-          const variant = product?.variants.find(v => v.sku_id === item.sku_id);
-          return {
-            ...item,
-            product_name: product?.product_name || '',
-            store_name: product?.store_name || '',
-            variant: variant?.variant || null,
-            final_price: variant?.final_price || 0
-          };
-        }),
-        totalBelanja: totals.totalBelanja,
-        jumlahToko: totals.jumlahToko,
-        feeJastip: totals.feeJastip,
-        ongkirKemasan: totals.ongkirKemasan,
-        grandTotal: totals.grandTotal
-      });
-      
-      openWhatsApp(waMessage);
-      
-      // Clear cart
-      clearCart();
-      
-      // Show success info
-      generateInfo.hidden = false;
-      generateInfo.textContent = 'Order belum tercatat di sistem, tetap kirim pesan WhatsApp';
-      
-      // Re-enable button after delay
-      setTimeout(() => {
-        generateOrderBtn.disabled = false;
-        generateOrderBtn.textContent = 'Generate Order';
-        generateInfo.hidden = true;
-      }, 3000);
-    } else {
-      if (data.error === 'STOCK') {
-        // Stock error - don't open WhatsApp
-        alert('Stok tidak cukup untuk beberapa item:\n' +
-          data.problems.map(p => `\n${p.sku_id}: tersedia ${p.available}`).join(''));
-      } else {
-        // Other error - still open WhatsApp with frontend totals
-        const waMessage = buildWaMessage({
-          orderId,
-          customerName: customer.name,
-          note: customer.note,
-          items: items.map(item => {
-            const product = state.products.find(p => p.sku_id === item.sku_id);
-            const variant = product?.variants.find(v => v.sku_id === item.sku_id);
-            return {
-              ...item,
-              product_name: product?.product_name || '',
-              store_name: product?.store_name || '',
-              variant: variant?.variant || null,
-              final_price: variant?.final_price || 0
-            };
-          }),
-          totalBelanja: totals.totalBelanja,
-          jumlahToko: totals.jumlahToko,
-          feeJastip: totals.feeJastip,
-          ongkirKemasan: totals.ongkirKemasan,
-          grandTotal: totals.grandTotal
-        });
-        
-        openWhatsApp(waMessage);
-        
-        generateInfo.hidden = false;
-        generateInfo.textContent = 'Order belum tercatat di sistem, tetap kirim pesan WhatsApp';
-      }
-      
-      generateOrderBtn.disabled = false;
-      generateOrderBtn.textContent = 'Generate Order';
-    }
-  } catch (error) {
-    console.error('Error generating order:', error);
-    
-    // Still open WhatsApp with frontend totals
-    const cartItems = Object.entries(state.cart);
-    const totals = calculateTotals();
-    const orderId = generateOrderId();
-    
-    const customer = {
-      name: dom.get('#customerName')?.value || '',
-      note: dom.get('#customerNote')?.value || ''
-    };
-    
-    const items = cartItems.map(([skuId, qty]) => {
-      const product = state.products.find(p => p.sku_id === skuId);
-      const variant = product?.variants.find(v => v.sku_id === skuId);
-      return {
-        sku_id: skuId,
-        qty,
-        product_name: product?.product_name || '',
-        store_name: product?.store_name || '',
-        variant: variant?.variant || null,
-        final_price: variant?.final_price || 0
-      };
-    });
-    
-    const waMessage = buildWaMessage({
-      orderId,
-      customerName: customer.name,
-      note: customer.note,
-      items,
-      totalBelanja: totals.totalBelanja,
-      jumlahToko: totals.jumlahToko,
-      feeJastip: totals.feeJastip,
-      ongkirKemasan: totals.ongkirKemasan,
-      grandTotal: totals.grandTotal
-    });
-    
-    openWhatsApp(waMessage);
-    
-    generateInfo.hidden = false;
-    generateInfo.textContent = 'Order belum tercatat di sistem, tetap kirim pesan WhatsApp';
-    
-    generateOrderBtn.disabled = false;
-    generateOrderBtn.textContent = 'Generate Order';
+  });
+  return buildWaMessage({
+    orderId: generateOrderId(),
+    customerName: dom.get('#customerName')?.value.trim() || '',
+    address: dom.get('#customerAddress')?.value.trim() || '',
+    note: dom.get('#customerNote')?.value.trim() || '',
+    items, totalBelanja: totals.totalBelanja, jumlahToko: totals.jumlahToko,
+    feeJastip: totals.feeJastip, ongkirKemasan: totals.ongkirKemasan,
+    grandTotal: totals.grandTotal
+  });
+}
+
+async function copyOrder() {
+  const info = dom.get('#generateInfo');
+  const name = dom.get('#customerName')?.value.trim();
+  const address = dom.get('#customerAddress')?.value.trim();
+  if (!name || !address || !Object.keys(state.cart).length) {
+    if (info) { info.hidden = false; info.textContent = 'Isi Nama dan Alamat terlebih dahulu.'; }
+    return;
   }
+  await navigator.clipboard.writeText(currentOrderMessage());
+  if (info) { info.hidden = false; info.textContent = 'Rekap order sudah disalin.'; }
+}
+
+function generateOrder() {
+  const name = dom.get('#customerName')?.value.trim();
+  const address = dom.get('#customerAddress')?.value.trim();
+  const info = dom.get('#generateInfo');
+  if (!name || !address) {
+    if (info) { info.hidden = false; info.textContent = 'Isi Nama dan Alamat terlebih dahulu.'; }
+    return;
+  }
+  window.open('https://wa.link/1lz4wo', '_blank', 'noopener,noreferrer');
 }
 
 // Validate stock
@@ -1104,7 +1129,7 @@ async function validateStock() {
   try {
     const response = await fetch(`${config.DEV_MOCK ? config.DEV_SERVER_URL : config.APPS_SCRIPT_URL}?action=stock`);
     const data = await response.json();
-    
+
     if (data.ok) {
       // Check cart items against server stock
       const problems = [];
@@ -1114,7 +1139,7 @@ async function validateStock() {
           problems.push({ sku_id: skuId, available });
         }
       });
-      
+
       return { ok: problems.length === 0, problems };
     } else {
       return { ok: false, problems: [] };
@@ -1131,27 +1156,27 @@ function calculateTotals() {
   let nominalPembelian = 0;
   let totalBelanja = 0;
   const storeSet = new Set();
-  let totalQty = 0;
+  let extraQty = 0;
   let ongkirKemasan = 0;
-  
+
   cartItems.forEach(([skuId, qty]) => {
-    const product = state.products.find(p => p.sku_id === skuId);
+    const product = getProductForSku(skuId);
     if (!product) return;
-    
+
     const variant = product.variants.find(v => v.sku_id === skuId);
     if (!variant) return;
-    
+
     nominalPembelian += variant.original_price * qty;
     totalBelanja += variant.final_price * qty;
     storeSet.add(normalizeStore(product.store_name));
-    totalQty += qty;
+    extraQty += Math.max(0, Number(qty) - 3);
     ongkirKemasan += variant.shipping_packaging_cost * qty;
   });
-  
+
   const jumlahToko = storeSet.size;
   const feeJastip = jumlahToko * (state.config?.fee_per_store || 15000) +
-    Math.max(0, totalQty - (state.config?.free_item_qty || 3)) * (state.config?.extra_item_fee || 3000);
-  
+    extraQty * (state.config?.extra_item_fee || 3000);
+
   return {
     nominalPembelian,
     totalBelanja,
@@ -1168,14 +1193,14 @@ function generateOrderId() {
   const year = date.getFullYear().toString().slice(-2);
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
-  
+
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let orderId = 'JP-' + year + month + day + '-';
-  
+
   for (let i = 0; i < 4; i++) {
     orderId += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  
+
   return orderId;
 }
 
@@ -1188,16 +1213,17 @@ function buildWaMessage(order) {
     '*REKAP ORDER JASTIP*',
     `Order ID: ${order.orderId}`
   ];
-  
+
   if (order.customerName) lines.push(`Nama: ${order.customerName}`);
+  if (order.address) lines.push(`Alamat: ${order.address}`);
   lines.push('');
-  
+
   order.items.forEach((it, i) => {
     const v = it.variant ? ` (${it.variant})` : '';
     lines.push(`${i + 1}. ${it.product_name}${v} - ${it.store_name}`);
     lines.push(`   ${it.qty} x ${rp(it.final_price)} = ${rp(it.qty * it.final_price)}`);
   });
-  
+
   lines.push(
     '',
     `Total Belanja: ${rp(order.totalBelanja)}`,
@@ -1206,12 +1232,12 @@ function buildWaMessage(order) {
     `Ongkir & Kemasan: ${rp(order.ongkirKemasan)}`,
     `*Grand Total: ${rp(order.grandTotal)}*`
   );
-  
+
   if (order.note) lines.push('', `Catatan: ${order.note}`);
   lines.push('', 'Mohon dicek & dikonfirmasi yaa. Terima kasih!');
-  
+
   const message = lines.join('\n');
-  
+
   // Truncate if too long
   if (message.length > 1500) {
     const truncatedLines = [
@@ -1220,38 +1246,37 @@ function buildWaMessage(order) {
       '*REKAP ORDER JASTIP*',
       `Order ID: ${order.orderId}`
     ];
-    
+
     if (order.customerName) truncatedLines.push(`Nama: ${order.customerName}`);
+    if (order.address) truncatedLines.push(`Alamat: ${order.address}`);
     truncatedLines.push('');
-    
+
     order.items.forEach((it, i) => {
       const v = it.variant ? ` (${it.variant})` : '';
       truncatedLines.push(`${i + 1}. ${it.product_name}${v} x ${it.qty}`);
     });
-    
+
     truncatedLines.push(
       '',
       `Total: ${rp(order.grandTotal)}`
     );
-    
+
     if (order.note) truncatedLines.push('', `Catatan: ${order.note}`);
     truncatedLines.push('', 'Mohon dicek & dikonfirmasi yaa. Terima kasih!');
-    
+
     return truncatedLines.join('\n');
   }
-  
+
   return message;
 }
 
 // Open WhatsApp with message
 function openWhatsApp(message) {
-  const waNumber = state.config?.wa_number || config.WA_NUMBER_FALLBACK || '6281234567890';
-  const encodedMessage = encodeURIComponent(message);
-  const url = `https://wa.me/${waNumber}?text=${encodedMessage}`;
-  
+  const url = 'https://wa.link/1lz4wo';
+
   // Try to open WhatsApp
   window.location.href = url;
-  
+
   // Fallback button after delay
   setTimeout(() => {
     const fabWa = dom.get('#fabWa');
@@ -1268,10 +1293,15 @@ function openWhatsApp(message) {
 function setupFloatingWhatsApp() {
   const fabWa = dom.get('#fabWa');
   if (!fabWa) return;
-  
+
+  // Page 1 inquiry CTA. Production/order messaging is intentionally separate.
+  fabWa.addEventListener('click', () => {
+    window.open('https://wa.link/arpqd8', '_blank', 'noopener,noreferrer');
+  });
+
   // Update number in button
   updateFloatingWhatsApp();
-  
+
   // Hide if on recap page
   if (state.currentPage === 'recap') {
     fabWa.style.display = 'none';
@@ -1282,13 +1312,13 @@ function setupFloatingWhatsApp() {
 function updateFloatingWhatsApp() {
   const fabWa = dom.get('#fabWa');
   if (!fabWa) return;
-  
+
   const waNumber = state.config?.wa_number || config.WA_NUMBER_FALLBACK || '6281234567890';
-  
+
   // Show button with appropriate message
   if (state.currentPage === 'intro' || state.currentPage === 'catalog') {
     fabWa.style.display = 'flex';
-    fabWa.title = 'Tanya Order';
+    fabWa.title = 'Ask Araa';
   } else {
     fabWa.style.display = 'none';
   }
@@ -1297,8 +1327,16 @@ function updateFloatingWhatsApp() {
 // Render loading state
 function renderLoadingState() {
   const skeletonGrid = dom.get('#skeletonGrid');
+  const loadingState = dom.get('#loadingState');
+  const errorState = dom.get('#errorState');
+  const emptyState = dom.get('#emptyState');
+  const productGrid = dom.get('#productGrid');
   if (!skeletonGrid) return;
-  
+
+  if (loadingState) loadingState.hidden = false;
+  if (errorState) errorState.hidden = true;
+  if (emptyState) emptyState.hidden = true;
+  if (productGrid) productGrid.innerHTML = '';
   skeletonGrid.innerHTML = Array(6).fill(0).map(() => `
     <div class="skeleton-item"></div>
   `).join('');
@@ -1307,8 +1345,12 @@ function renderLoadingState() {
 // Render error state
 function renderErrorState() {
   const errorState = dom.get('#errorState');
+  const loadingState = dom.get('#loadingState');
+  const productGrid = dom.get('#productGrid');
   if (!errorState) return;
-  
+
+  if (loadingState) loadingState.hidden = true;
+  if (productGrid) productGrid.innerHTML = '';
   errorState.hidden = false;
   errorState.scrollIntoView({ behavior: 'smooth' });
 }
@@ -1322,6 +1364,9 @@ window.changeQty = changeQty;
 window.removeFromCart = removeFromCart;
 window.clearCart = clearCart;
 window.generateOrder = generateOrder;
+window.changeDetailQuantity = changeDetailQuantity;
+window.setDetailQuantity = setDetailQuantity;
+window.addDetailToCart = addDetailToCart;
 
 // Start the application
 document.addEventListener('DOMContentLoaded', init);

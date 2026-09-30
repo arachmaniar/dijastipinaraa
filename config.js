@@ -1,19 +1,14 @@
 // Frontend configuration for diJastipinaraa
-// Replace APPS_SCRIPT_URL with your deployed Apps Script web app URL
-// Set DEV_MOCK to true for local development with mock data
+// The deployed Google Apps Script Web App is the only product-data source.
 
 const config = {
   // Apps Script Web App URL (required)
-  APPS_SCRIPT_URL: 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec',
+  APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxPy67HECTXhSf_sN2tgB3DCkgmLdXdoQ9t3B4g8PaJWsFSNairwoFmZSJbUEBCRpvt/exec',
   
   // Fallback WhatsApp number for when catalog hasn't loaded yet
   WA_NUMBER_FALLBACK: '',
   
-  // Enable mock data for development (uses dev-mock/catalog.json and card-catalogue photos)
-  DEV_MOCK: false,
-  
-  // Local development server URL (for mock data)
-  DEV_SERVER_URL: 'http://localhost:8080'
+  DEV_MOCK: false
 };
 
 // Export for use in app.js

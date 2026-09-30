@@ -1,152 +1,676 @@
 <!doctype html>
+
 <html lang="id">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+
   <title>diJastipinaraa</title>
+
   <link rel="icon" href="assets/logo/Logo.png" type="image/png">
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6">
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700;800&display=swap"
+    rel="stylesheet"
+  >
+
+  <link rel="stylesheet" href="style.css?v=1.7">
 </head>
+
 <body>
+
   <div class="app">
-    <header class="header">
-      <div class="brand" id="homeLogo" role="button" tabindex="0" aria-label="Kembali ke halaman utama">
-        <img src="assets/logo/Logo.png" alt="diJastipinaraa" class="logo">
-      </div>
-      <div class="header-actions" id="headerActions"></div>
-    </header>
 
-    <!-- Floating WhatsApp Button -->
-    <button class="fab-wa" id="fabWa" aria-label="Ask Araa">
-      <img src="assets/icons/whatsapp.svg" alt="WhatsApp" class="fab-icon">
-      <span class="fab-label"><span>Ask</span><span>Araa</span></span>
-    </button>
+```
+<!-- ======================================================
+     HEADER
+     ====================================================== -->
 
-    <!-- Page 1: Intro -->
-    <main id="pageIntro" class="page intro" data-page="intro">
-      <div class="intro-inner">
-        <div class="hero-illustration">
-          <img src="assets/hero/Page 1-Central.svg" alt="diJastipinaraa" class="hero-img">
-        </div>
-        <h1>Jastip Kuliner dan Kraft Solo</h1>
-        <p>Fee Jastip Rp 15rb/toko (maks 3 item). Kalau mau nambah, item berikutnya dihitung Rp 3rb/item. Pengiriman Next Day via Paxel.</p>
-        <button class="btn btn-primary btn-full" id="btnLanjut">Lanjut</button>
-      </div>
-    </main>
+<header class="header">
 
-    <!-- Page 2: Katalog -->
-    <main id="pageCatalog" class="page" data-page="catalog" hidden>
-      <div class="search-wrapper">
-        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"></circle>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-        </svg>
-        <input type="search" id="searchInput" placeholder="Cari produk atau toko..." autocomplete="off" aria-label="Cari produk atau toko">
-        <button class="search-clear" id="searchClear" aria-label="Hapus pencarian" hidden>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
-      </div>
-
-      <div class="category-nav" id="categoryNav" role="tablist" aria-label="Kategori produk">
-        <button class="category-chip active" data-category="Semua" role="tab" aria-selected="true">Semua</button>
-        <button class="category-chip" data-category="Makanan" role="tab" aria-selected="false"><img src="assets/icons/Makanan.svg" alt="" class="cat-icon">Makanan</button>
-        <button class="category-chip" data-category="Minuman" role="tab" aria-selected="false"><img src="assets/icons/Minuman.svg" alt="" class="cat-icon">Minuman</button>
-        <button class="category-chip" data-category="Snack" role="tab" aria-selected="false"><img src="assets/icons/Snack.svg" alt="" class="cat-icon">Snack</button>
-        <button class="category-chip" data-category="Roti & Kue" role="tab" aria-selected="false"><img src="assets/icons/Roti & Kue.svg" alt="" class="cat-icon">Roti & Kue</button>
-        <button class="category-chip" data-category="Sarung" role="tab" aria-selected="false"><img src="assets/icons/Sarung.svg" alt="" class="cat-icon">Sarung</button>
-        <button class="category-chip" data-category="Sprei Jadul" role="tab" aria-selected="false"><img src="assets/icons/Seprei Adem.svg" alt="" class="cat-icon">Sprei Jadul</button>
-        <button class="category-chip" data-category="Gendongan" role="tab" aria-selected="false"><img src="assets/icons/Gendongan.svg" alt="" class="cat-icon">Gendongan</button>
-        <button class="category-chip" data-category="Rok Encim" role="tab" aria-selected="false"><img src="assets/icons/Rok Encim.svg" alt="" class="cat-icon">Rok Encim</button>
-      </div>
-
-      <div class="section-head">
-        <h2 id="sectionTitle">Semua Produk</h2>
-        <span class="product-count" id="productCount"></span>
-      </div>
-
-      <div class="product-grid" id="productGrid" role="list"></div>
-
-      <div class="empty-state" id="emptyState" hidden>
-        <p>Tidak menemukan produk</p>
-        <button class="btn btn-secondary" id="btnResetSearch">Reset pencarian</button>
-      </div>
-
-      <div class="loading-state" id="loadingState" hidden>
-        <div class="skeleton-grid" id="skeletonGrid"></div>
-      </div>
-
-      <div class="error-state" id="errorState" hidden>
-        <p>Gagal memuat katalog</p>
-        <button class="btn btn-primary" id="btnRetry">Coba lagi</button>
-      </div>
-    </main>
-
-    <!-- Page 2A: Detail Produk -->
-    <main id="pageDetail" class="page" data-page="detail" hidden>
-      <div class="detail-container" id="detailContainer"></div>
-    </main>
-
-    <!-- Page 3: Rekap Order -->
-    <main id="pageRecap" class="page" data-page="recap" hidden>
-      <div class="recap-container">
-        <div class="section-head">
-          <h2>Rekap Pesanan</h2>
-          <div class="recap-actions">
-            <button class="btn btn-secondary btn-sm" id="btnGoCatalogTop">← Katalog</button>
-            <button class="btn btn-secondary btn-sm" id="btnClearAll">Hapus Semua</button>
-          </div>
-        </div>
-
-        <div class="cart-list" id="cartList"></div>
-
-        <div class="empty-cart" id="emptyCart" hidden>
-          <p>Belum ada item. Pilih produk dari katalog.</p>
-          <button class="btn btn-primary" id="btnGoCatalog">Ke Katalog</button>
-        </div>
-
-        <div class="summary-card" id="summaryCard" hidden>
-          <div class="summary-rows" id="summaryRows"></div>
-          <div class="summary-total" id="summaryTotal"></div>
-        </div>
-
-        <div class="customer-inputs" id="customerInputs">
-          <div class="input-row">
-            <div class="input-group">
-              <label for="customerName">Nama (Wajib)</label>
-              <input type="text" id="customerName" placeholder="Nama kamu" maxlength="50" required>
-            </div>
-            <div class="input-group">
-              <label for="customerAddress">Alamat (Wajib)</label>
-              <input type="text" id="customerAddress" placeholder="Alamat pengantaran" maxlength="200" required>
-            </div>
-          </div>
-          <div class="input-row">
-            <div class="input-group">
-              <label for="customerNote">Catatan (Opsional)</label>
-              <input type="text" id="customerNote" placeholder="Catatan untuk jastip" maxlength="200">
-            </div>
-          </div>
-        </div>
-
-        <div class="order-guide">
-          <p class="order-instruction">Cek dulu pesanannya yaa. Setelah itu klik Copy lalu klik Order untuk membuat pesanan.</p>
-        </div>
-        <div class="checkout-actions" style="display: flex; gap: 12px;">
-          <button class="btn btn-secondary" id="btnCopyOrder" disabled>Copy</button>
-          <button class="btn btn-primary" id="btnGenerateOrder" disabled>Order</button>
-        </div>
-        <p class="generate-info" id="generateInfo" hidden></p>
-      </div>
-    </main>
+  <div
+    class="brand"
+    id="homeLogo"
+    role="button"
+    tabindex="0"
+    aria-label="Kembali ke halaman utama"
+  >
+    <img
+      src="assets/logo/Logo.png"
+      alt="diJastipinaraa"
+      class="logo"
+    >
   </div>
 
+  <div class="header-actions" id="headerActions">
+
+    <!-- Shopping Bag -->
+    <button
+      type="button"
+      class="cart-icon-btn"
+      id="cartButton"
+      aria-label="Lihat rekap pesanan"
+    >
+      <svg
+        class="cart-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <!-- Shopping bag handle -->
+        <path d="M7 8V6.5C7 4.57 8.57 3 10.5 3h3C15.43 3 17 4.57 17 6.5V8"></path>
+
+        <!-- Shopping bag body -->
+        <path d="M5 8h14l1 12H4L5 8Z"></path>
+
+        <!-- Bag detail -->
+        <path d="M9 11v1"></path>
+        <path d="M15 11v1"></path>
+      </svg>
+
+      <span
+        class="cart-count"
+        id="cartCount"
+        hidden
+      >0</span>
+    </button>
+
+  </div>
+
+</header>
+
+
+<!-- ======================================================
+     FLOATING WHATSAPP
+     ====================================================== -->
+
+<button
+  type="button"
+  class="fab-wa"
+  id="fabWa"
+  aria-label="Ask Araa"
+>
+  <img
+    src="assets/icons/whatsapp.svg"
+    alt="WhatsApp"
+    class="fab-icon"
+  >
+
+  <span class="fab-label">
+    <span>Ask</span>
+    <span>Araa</span>
+  </span>
+</button>
+
+
+<!-- ======================================================
+     PAGE 1 — INTRO
+     ====================================================== -->
+
+<main
+  id="pageIntro"
+  class="page intro"
+  data-page="intro"
+>
+
+  <div class="intro-inner">
+
+    <div class="hero-illustration">
+      <img
+        src="assets/hero/Page 1-Central.svg"
+        alt="diJastipinaraa"
+        class="hero-img"
+      >
+    </div>
+
+    <h1>Jastip Kuliner dan Kraft Solo</h1>
+
+    <p>
+      Fee Jastip Rp 15rb/toko (maks 3 item).
+      Kalau mau nambah, item berikutnya dihitung Rp 3rb/item.
+      Pengiriman Next Day via Paxel.
+    </p>
+
+    <button
+      type="button"
+      class="btn btn-primary btn-full"
+      id="btnLanjut"
+    >
+      Lanjut
+    </button>
+
+  </div>
+
+</main>
+
+
+<!-- ======================================================
+     PAGE 2 — KATALOG
+     ====================================================== -->
+
+<main
+  id="pageCatalog"
+  class="page"
+  data-page="catalog"
+  hidden
+>
+
+  <!-- Search -->
+  <div class="search-wrapper">
+
+    <svg
+      class="search-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      aria-hidden="true"
+    >
+      <circle cx="11" cy="11" r="8"></circle>
+      <line
+        x1="21"
+        y1="21"
+        x2="16.65"
+        y2="16.65"
+      ></line>
+    </svg>
+
+    <input
+      type="search"
+      id="searchInput"
+      placeholder="Cari produk atau toko..."
+      autocomplete="off"
+      aria-label="Cari produk atau toko"
+    >
+
+    <button
+      type="button"
+      class="search-clear"
+      id="searchClear"
+      aria-label="Hapus pencarian"
+      hidden
+    >
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        aria-hidden="true"
+      >
+        <line
+          x1="18"
+          y1="6"
+          x2="6"
+          y2="18"
+        ></line>
+
+        <line
+          x1="6"
+          y1="6"
+          x2="18"
+          y2="18"
+        ></line>
+      </svg>
+    </button>
+
+  </div>
+
+
+  <!-- Categories -->
+  <div
+    class="category-nav"
+    id="categoryNav"
+    role="tablist"
+    aria-label="Kategori produk"
+  >
+
+    <button
+      type="button"
+      class="category-chip active"
+      data-category="Semua"
+      role="tab"
+      aria-selected="true"
+    >
+      Semua
+    </button>
+
+    <button
+      type="button"
+      class="category-chip"
+      data-category="Makanan"
+      role="tab"
+      aria-selected="false"
+    >
+      <img
+        src="assets/icons/Makanan.svg"
+        alt=""
+        class="cat-icon"
+      >
+      Makanan
+    </button>
+
+    <button
+      type="button"
+      class="category-chip"
+      data-category="Minuman"
+      role="tab"
+      aria-selected="false"
+    >
+      <img
+        src="assets/icons/Minuman.svg"
+        alt=""
+        class="cat-icon"
+      >
+      Minuman
+    </button>
+
+    <button
+      type="button"
+      class="category-chip"
+      data-category="Snack"
+      role="tab"
+      aria-selected="false"
+    >
+      <img
+        src="assets/icons/Snack.svg"
+        alt=""
+        class="cat-icon"
+      >
+      Snack
+    </button>
+
+    <button
+      type="button"
+      class="category-chip"
+      data-category="Roti & Kue"
+      role="tab"
+      aria-selected="false"
+    >
+      <img
+        src="assets/icons/Roti & Kue.svg"
+        alt=""
+        class="cat-icon"
+      >
+      Roti & Kue
+    </button>
+
+    <button
+      type="button"
+      class="category-chip"
+      data-category="Sarung"
+      role="tab"
+      aria-selected="false"
+    >
+      <img
+        src="assets/icons/Sarung.svg"
+        alt=""
+        class="cat-icon"
+      >
+      Sarung
+    </button>
+
+    <button
+      type="button"
+      class="category-chip"
+      data-category="Sprei Jadul"
+      role="tab"
+      aria-selected="false"
+    >
+      <img
+        src="assets/icons/Seprei Adem.svg"
+        alt=""
+        class="cat-icon"
+      >
+      Sprei Jadul
+    </button>
+
+    <button
+      type="button"
+      class="category-chip"
+      data-category="Gendongan"
+      role="tab"
+      aria-selected="false"
+    >
+      <img
+        src="assets/icons/Gendongan.svg"
+        alt=""
+        class="cat-icon"
+      >
+      Gendongan
+    </button>
+
+    <button
+      type="button"
+      class="category-chip"
+      data-category="Rok Encim"
+      role="tab"
+      aria-selected="false"
+    >
+      <img
+        src="assets/icons/Rok Encim.svg"
+        alt=""
+        class="cat-icon"
+      >
+      Rok Encim
+    </button>
+
+  </div>
+
+
+  <!-- Section Header -->
+  <div class="section-head">
+
+    <h2 id="sectionTitle">
+      Semua Produk
+    </h2>
+
+    <span
+      class="product-count"
+      id="productCount"
+    ></span>
+
+  </div>
+
+
+  <!-- Product Grid -->
+  <div
+    class="product-grid"
+    id="productGrid"
+    role="list"
+  ></div>
+
+
+  <!-- Empty State -->
+  <div
+    class="empty-state"
+    id="emptyState"
+    hidden
+  >
+    <p>Tidak menemukan produk</p>
+
+    <button
+      type="button"
+      class="btn btn-secondary"
+      id="btnResetSearch"
+    >
+      Reset pencarian
+    </button>
+  </div>
+
+
+  <!-- Loading -->
+  <div
+    class="loading-state"
+    id="loadingState"
+    hidden
+  >
+    <div
+      class="skeleton-grid"
+      id="skeletonGrid"
+    ></div>
+  </div>
+
+
+  <!-- Error -->
+  <div
+    class="error-state"
+    id="errorState"
+    hidden
+  >
+    <p>Gagal memuat katalog</p>
+
+    <button
+      type="button"
+      class="btn btn-primary"
+      id="btnRetry"
+    >
+      Coba lagi
+    </button>
+  </div>
+
+</main>
+
+
+<!-- ======================================================
+     PAGE 2A — DETAIL PRODUK
+     ====================================================== -->
+
+<main
+  id="pageDetail"
+  class="page"
+  data-page="detail"
+  hidden
+>
+
+  <div
+    class="detail-container"
+    id="detailContainer"
+  ></div>
+
+</main>
+
+
+<!-- ======================================================
+     PAGE 3 — REKAP ORDER
+     ====================================================== -->
+
+<main
+  id="pageRecap"
+  class="page"
+  data-page="recap"
+  hidden
+>
+
+  <div class="recap-container">
+
+    <!-- Recap Header -->
+    <div class="section-head">
+
+      <h2>
+        Rekap Pesanan
+      </h2>
+
+      <div class="recap-actions">
+
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          id="btnGoCatalogTop"
+        >
+          ← Katalog
+        </button>
+
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          id="btnClearAll"
+        >
+          Hapus Semua
+        </button>
+
+      </div>
+
+    </div>
+
+
+    <!-- Cart Items -->
+    <div
+      class="cart-list"
+      id="cartList"
+    ></div>
+
+
+    <!-- Empty Cart -->
+    <div
+      class="empty-cart"
+      id="emptyCart"
+      hidden
+    >
+
+      <p>
+        Belum ada item. Pilih produk dari katalog.
+      </p>
+
+      <button
+        type="button"
+        class="btn btn-primary"
+        id="btnGoCatalog"
+      >
+        Ke Katalog
+      </button>
+
+    </div>
+
+
+    <!-- Summary -->
+    <div
+      class="summary-card"
+      id="summaryCard"
+      hidden
+    >
+
+      <div
+        class="summary-rows"
+        id="summaryRows"
+      ></div>
+
+      <div
+        class="summary-total"
+        id="summaryTotal"
+      ></div>
+
+    </div>
+
+
+    <!-- Customer Information -->
+    <div
+      class="customer-inputs"
+      id="customerInputs"
+    >
+
+      <div class="input-row">
+
+        <div class="input-group">
+
+          <label for="customerName">
+            Nama (Wajib)
+          </label>
+
+          <input
+            type="text"
+            id="customerName"
+            placeholder="Nama kamu"
+            maxlength="50"
+            required
+          >
+
+        </div>
+
+
+        <div class="input-group">
+
+          <label for="customerAddress">
+            Alamat (Wajib)
+          </label>
+
+          <input
+            type="text"
+            id="customerAddress"
+            placeholder="Alamat pengantaran"
+            maxlength="200"
+            required
+          >
+
+        </div>
+
+      </div>
+
+
+      <div class="input-row">
+
+        <div class="input-group">
+
+          <label for="customerNote">
+            Catatan (Opsional)
+          </label>
+
+          <input
+            type="text"
+            id="customerNote"
+            placeholder="Catatan untuk jastip"
+            maxlength="200"
+          >
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <!-- Order Guide -->
+    <div class="order-guide">
+
+      <p class="order-instruction">
+        Cek dulu pesanannya yaa. Setelah itu klik Copy lalu klik Order untuk membuat pesanan.
+      </p>
+
+    </div>
+
+
+    <!-- Checkout Actions -->
+    <div class="checkout-actions">
+
+      <button
+        type="button"
+        class="btn btn-secondary"
+        id="btnCopyOrder"
+        disabled
+      >
+        Copy
+      </button>
+
+      <button
+        type="button"
+        class="btn btn-primary"
+        id="btnGenerateOrder"
+        disabled
+      >
+        Order
+      </button>
+
+    </div>
+
+
+    <p
+      class="generate-info"
+      id="generateInfo"
+      hidden
+    ></p>
+
+  </div>
+
+</main>
+```
+
+  </div>
+
+  <!-- ======================================================
+       JAVASCRIPT
+       ====================================================== -->
+
   <script src="config.js"></script>
+
   <script src="app.js"></script>
+
 </body>
 </html>

@@ -1312,27 +1312,25 @@ select {
 }
 
 /* ============================================================
-   END-TO-END UI REVISION: CARD, PLUS BUTTON, CART & CATEGORY
+   FINAL UI FIX: PLUS BUTTON, CART, CATEGORY & SPACING
    ============================================================ */
 
-/* 1. Product Card & Circular Plus (+) Button */
+/* 1. Card Produk & Tombol Plus (+) */
 .product-card {
   position: relative !important;
-  padding-bottom: 28px !important; /* Extra bottom padding to prevent crowding */
+  padding-bottom: 28px !important; /* Ruang ekstra bawah card */
 }
 
-.add-btn,
-.btn-add,
-.product-card button.add-to-cart {
+.btn-plus-cart {
   position: absolute !important;
-  bottom: 20px !important;         /* Lifted significantly off the bottom border */
-  right: 18px !important;
-  width: 42px !important;          /* Larger circular button dimensions */
+  bottom: 18px !important;         /* Jarak dari batas bawah card */
+  right: 18px !important;          /* Jarak dari batas kanan card */
+  width: 42px !important;          /* Ukuran lingkaran */
   height: 42px !important;
-  border-radius: 50% !important;   /* Perfect circle */
-  background-color: #1E3A8A !important; /* Dark Blue circular background */
-  color: #FFFFFF !important;       /* Bright white plus (+) sign */
-  font-size: 24px !important;       /* Larger (+) icon size */
+  border-radius: 50% !important;   /* Lingkaran sempurna */
+  background-color: #1E3A8A !important; /* Background Biru Gelap */
+  color: #FFFFFF !important;       /* Tanda (+) Putih Terang */
+  font-size: 24px !important;
   font-weight: 700 !important;
   line-height: 1 !important;
   display: flex !important;
@@ -1340,35 +1338,25 @@ select {
   justify-content: center !important;
   border: none !important;
   box-shadow: 0 4px 10px rgba(30, 58, 138, 0.25) !important;
+  z-index: 5 !important;
   cursor: pointer !important;
-  transition: transform 0.15s ease, background-color 0.15s ease !important;
 }
 
-.add-btn:active,
-.btn-add:active,
-.product-card button.add-to-cart:active {
-  transform: scale(0.92) !important;
-  background-color: #1E293B !important;
-}
-
-/* 2. Cart Button Styling (Bright Blue & Dark Orange) */
+/* 2. Keranjang Belanja (Biru Terang + Badge Oranye Gelap) */
 .cart-btn,
 .header-cart,
 #cartBtn {
-  background-color: #2563EB !important; /* Bright Blue */
+  background-color: #2563EB !important; /* Biru Terang */
   color: #FFFFFF !important;
   border: none !important;
   border-radius: 50px !important;
   padding: 8px 18px !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 8px !important;
   box-shadow: 0 3px 10px rgba(37, 99, 235, 0.3) !important;
 }
 
 .cart-badge,
 .cart-count {
-  background-color: #C2410C !important; /* Dark Orange badge */
+  background-color: #C2410C !important; /* Badge Oranye Gelap */
   color: #FFFFFF !important;
   font-weight: 700 !important;
   font-size: 13px !important;
@@ -1376,22 +1364,21 @@ select {
   border-radius: 20px !important;
 }
 
-/* 3. Category Buttons & Icon Sizing */
+/* 3. Kategori & Icon */
 .category-btn img,
 .category-pill img,
 .cat-btn img {
-  width: 26px !important; /* Larger category icon */
+  width: 26px !important; /* Icon lebih besar */
   height: 26px !important;
   object-fit: contain !important;
   margin-right: 8px !important;
 }
 
-/* Default State: Medium Dark Blue Font (Not too dark) */
 .category-btn,
 .category-pill,
 .cat-btn {
   background-color: #EFF6FF !important;
-  color: #1D4ED8 !important; /* Balanced Medium Dark Blue */
+  color: #1D4ED8 !important; /* Font Biru Sedang (jelas & tidak terlalu gelap) */
   border: 1px solid #BFDBFE !important;
   font-weight: 600 !important;
   padding: 8px 18px !important;
@@ -1399,12 +1386,10 @@ select {
   font-size: 14px !important;
 }
 
-/* Active Category Pill State */
 .category-btn.active,
 .category-pill.active,
 .cat-btn.active {
-  background-color: #2563EB !important; /* Bright Blue background */
-  color: #FFFFFF !important;            /* Crisp White text */
+  background-color: #2563EB !important; /* State aktif Biru Solid */
+  color: #FFFFFF !important;
   border-color: #1D4ED8 !important;
-  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.3) !important;
 }

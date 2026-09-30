@@ -1311,69 +1311,100 @@ select {
   }
 }
 
-/* 1. Jarak Tombol (+) pada Card Produk */
+/* ============================================================
+   END-TO-END UI REVISION: CARD, PLUS BUTTON, CART & CATEGORY
+   ============================================================ */
+
+/* 1. Product Card & Circular Plus (+) Button */
 .product-card {
-  position: relative;
-  padding-bottom: 20px !important; /* Memberikan ruang ekstra di bawah card */
+  position: relative !important;
+  padding-bottom: 28px !important; /* Extra bottom padding to prevent crowding */
 }
 
-.add-btn, 
+.add-btn,
 .btn-add,
 .product-card button.add-to-cart {
-  bottom: 16px !important; /* Menjauhkan tombol dari garis bawah card */
-  right: 16px !important;
-  width: 36px !important;
-  height: 36px !important;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08); /* Memberikan sedikit bayangan agar lebih menonjol */
+  position: absolute !important;
+  bottom: 20px !important;         /* Lifted significantly off the bottom border */
+  right: 18px !important;
+  width: 42px !important;          /* Larger circular button dimensions */
+  height: 42px !important;
+  border-radius: 50% !important;   /* Perfect circle */
+  background-color: #1E3A8A !important; /* Dark Blue circular background */
+  color: #FFFFFF !important;       /* Bright white plus (+) sign */
+  font-size: 24px !important;       /* Larger (+) icon size */
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: none !important;
+  box-shadow: 0 4px 10px rgba(30, 58, 138, 0.25) !important;
+  cursor: pointer !important;
+  transition: transform 0.15s ease, background-color 0.15s ease !important;
 }
 
-/* 2. Warna & Kontras Keranjang Belanja */
+.add-btn:active,
+.btn-add:active,
+.product-card button.add-to-cart:active {
+  transform: scale(0.92) !important;
+  background-color: #1E293B !important;
+}
+
+/* 2. Cart Button Styling (Bright Blue & Dark Orange) */
 .cart-btn,
 .header-cart,
 #cartBtn {
-  background-color: #1E293B !important; /* Warna dasar gelap (Slate Dark) agar kontras */
+  background-color: #2563EB !important; /* Bright Blue */
   color: #FFFFFF !important;
   border: none !important;
-  border-radius: 50px;
-  padding: 8px 16px;
+  border-radius: 50px !important;
+  padding: 8px 18px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.3) !important;
 }
 
 .cart-badge,
 .cart-count {
-  background-color: #F59E0B !important; /* Badge angka warna kuning/amber solid */
-  color: #000000 !important;
-  font-weight: bold;
+  background-color: #C2410C !important; /* Dark Orange badge */
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+  font-size: 13px !important;
+  padding: 2px 8px !important;
+  border-radius: 20px !important;
 }
 
-/* 3. Ukuran Icon Kategori */
+/* 3. Category Buttons & Icon Sizing */
 .category-btn img,
 .category-pill img,
 .cat-btn img {
-  width: 22px !important;  /* Diperbesar dari ukuran awal */
-  height: 22px !important;
-  object-fit: contain;
-  margin-right: 6px;
+  width: 26px !important; /* Larger category icon */
+  height: 26px !important;
+  object-fit: contain !important;
+  margin-right: 8px !important;
 }
 
-/* 4. Warna Tombol Kategori (Solid & Kontras Tinggi) */
-/* State Standar (Belum Dipilih) */
+/* Default State: Medium Dark Blue Font (Not too dark) */
 .category-btn,
 .category-pill,
 .cat-btn {
-  background-color: #F3F4F6 !important;
-  color: #374151 !important;
-  border: 1px solid #E5E7EB !important;
-  font-weight: 500;
-  padding: 8px 16px !important;
+  background-color: #EFF6FF !important;
+  color: #1D4ED8 !important; /* Balanced Medium Dark Blue */
+  border: 1px solid #BFDBFE !important;
+  font-weight: 600 !important;
+  padding: 8px 18px !important;
+  border-radius: 20px !important;
+  font-size: 14px !important;
 }
 
-/* State Aktif (Kategori yang Sedang Dipilih) */
+/* Active Category Pill State */
 .category-btn.active,
 .category-pill.active,
 .cat-btn.active {
-  background-color: #F59E0B !important; /* Warna Kuning/Warm Amber Solid */
-  color: #111827 !important;            /* Teks Gelap Tegas */
-  border: 1px solid #D97706 !important;
-  font-weight: 700 !important;
-  box-shadow: 0 2px 4px rgba(245, 158, 11, 0.2);
+  background-color: #2563EB !important; /* Bright Blue background */
+  color: #FFFFFF !important;            /* Crisp White text */
+  border-color: #1D4ED8 !important;
+  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.3) !important;
 }

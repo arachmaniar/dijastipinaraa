@@ -578,8 +578,8 @@ select {
   height: 36px;
   border-radius: 50%;
   border: none;
-  background: #2563EB;
-  color: #FFFFFF;
+  background: #2563EB !important;
+  color: #FFFFFF !important;
   float: right;
   margin-top: 4px;
   margin-right: 2px;
@@ -591,6 +591,11 @@ select {
   justify-content: center;
   box-shadow: 0 3px 8px rgba(37, 99, 235, 0.22);
   transition: background 0.2s, transform 0.2s;
+}
+
+.add:hover {
+  background: #1D4ED8 !important;
+  transform: scale(1.05);
 }
 
 .add:hover {
@@ -1407,4 +1412,18 @@ select {
   background-color: #2563EB !important; /* State aktif Biru Solid */
   color: #FFFFFF !important;
   border-color: #1D4ED8 !important;
+}
+
+/* FINAL CART COLOR */
+.cart-icon-btn {
+  background: #2563EB !important;
+  color: #FFFFFF !important;
+  border: none !important;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.25);
+}
+
+.cart-icon-btn .cart-count {
+  background: #C2410C !important;
+  color: #FFFFFF !important;
+  font-weight: 700;
 }

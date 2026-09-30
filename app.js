@@ -1282,8 +1282,6 @@ function buildWaMessage(order) {
   // Truncate if too long
   if (message.length > 1500) {
     const truncatedLines = [
-      'Hallo araa, ini rekap order aku yaa',
-      '',
       '*REKAP ORDER JASTIP*',
       `Order ID: ${order.orderId}`
     ];
